@@ -11,6 +11,8 @@ import { samplePassiveCandidates } from "./passives";
 import {
   CHARACTER_SYSTEM_PROMPT,
   NARRATION_SYSTEM_PROMPT,
+  SPEECH_SYSTEM_PROMPT,
+  STORY_SYSTEM_PROMPT,
   buildCharacterPrompt,
 } from "./prompts";
 
@@ -112,6 +114,12 @@ export async function generateCharacterStats(
   return parseGeneratedStats(response, passiveCandidates);
 }
 
+/** テキストのみのセッション(実況・ストーリー)が期待する入出力の宣言です。 */
+const TEXT_SESSION_IO = {
+  expectedInputs: [{ type: "text", languages: ["ja"] }],
+  expectedOutputs: [{ type: "text", languages: ["ja"] }],
+} satisfies Pick<LanguageModelCreateOptions, "expectedInputs" | "expectedOutputs">;
+
 /**
  * 実況用のベースセッション(テキストのみ)を作成します。
  * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
@@ -119,10 +127,51 @@ export async function generateCharacterStats(
 export async function createNarrationSession(): Promise<LanguageModelSession> {
   const api = requireLanguageModel();
   return api.create({
-    expectedInputs: [{ type: "text", languages: ["ja"] }],
-    expectedOutputs: [{ type: "text", languages: ["ja"] }],
+    ...TEXT_SESSION_IO,
     initialPrompts: [{ role: "system", content: NARRATION_SYSTEM_PROMPT }],
   });
+}
+
+/**
+ * 使い捨てのテキストセッションを作成して1回だけ生成する共通処理です。
+ * 前口上・セリフのように使用回数が少ない生成で、セッションの持ち回りを
+ * 不要にするために使います。生成の成否に関わらずセッションを破棄します。
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+async function generateOnce(
+  systemPrompt: string,
+  prompt: string,
+): Promise<string> {
+  const api = requireLanguageModel();
+  const session = await api.create({
+    ...TEXT_SESSION_IO,
+    initialPrompts: [{ role: "system", content: systemPrompt }],
+  });
+  try {
+    const response = await session.prompt(prompt);
+    return response.trim();
+  } finally {
+    session.destroy();
+  }
+}
+
+/**
+ * バトル前口上(ストーリー)を1回だけ生成します。
+ * @param prompt buildStoryPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateBattleStory(prompt: string): Promise<string> {
+  return generateOnce(STORY_SYSTEM_PROMPT, prompt);
+}
+
+/**
+ * キャラクターのセリフ(必殺技・勝利・断末魔)を1回だけ生成します。
+ * @param prompt buildSpecialMoveSpeechPrompt / buildVictorySpeechPrompt /
+ *   buildDefeatSpeechPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateCharacterSpeech(prompt: string): Promise<string> {
+  return generateOnce(SPEECH_SYSTEM_PROMPT, prompt);
 }
 
 /**

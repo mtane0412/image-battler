@@ -6,6 +6,7 @@
 import type { AilmentType, PassiveSkillId } from "../types";
 import { AILMENT_LABELS, PASSIVE_SKILL_SUMMARIES } from "../types";
 import { STAT_RANGES } from "./schema";
+import type { StoryIngredients } from "./story";
 
 /** キャラクター生成セッションのシステムプロンプトです。 */
 export const CHARACTER_SYSTEM_PROMPT = [
@@ -53,6 +54,103 @@ export function buildCharacterPrompt(
   ].join("\n");
 }
 
+/** ストーリー(前口上)生成セッションのシステムプロンプトです。 */
+export const STORY_SYSTEM_PROMPT = [
+  "あなたは対戦ゲームのオープニングを語るナレーターです。",
+  "与えられた二人のファイターの設定と舞台から、これから始まるバトルの",
+  "前口上を日本語で2〜3文で語ってください。",
+  "前口上の本文のみを出力し、前置きや引用符は不要です。",
+].join("");
+
+/** ストーリー(前口上)生成に渡すファイター情報です。 */
+export interface StoryFighter {
+  name: string;
+  title: string;
+  description: string;
+}
+
+/**
+ * バトル前口上用のプロンプトを組み立てます。
+ * 舞台と因縁(ingredients)はコード側で抽選した材料です(ai/story.ts)。
+ * 前口上はバトル再生前に表示するため、勝敗のネタバレを明示的に禁止します。
+ */
+export function buildStoryPrompt(
+  first: StoryFighter,
+  second: StoryFighter,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    "これから始まるバトルの前口上を2〜3文で書いてください。",
+    `舞台: ${ingredients.stage}`,
+    `二人の関係: ${ingredients.relation}`,
+    `青コーナー:「${first.title}」こと ${first.name}。${first.description}`,
+    `赤コーナー:「${second.title}」こと ${second.name}。${second.description}`,
+    "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
+  ].join("\n");
+}
+
+/** 必殺技セリフ生成セッションのシステムプロンプトです。 */
+export const SPEECH_SYSTEM_PROMPT = [
+  "あなたは対戦ゲームのキャラクターになりきってセリフを作る脚本家です。",
+  "キャラクターの設定に合った短い決めゼリフを日本語で1つだけ作ってください。",
+  "セリフ本文のみを出力し、前置きやかぎ括弧・引用符は不要です。",
+].join("");
+
+/**
+ * セリフ系プロンプトが共有する、キャラクター設定と舞台の説明行です。
+ * 舞台と因縁(ingredients)は前口上(buildStoryPrompt)と同じ抽選材料を渡し、
+ * セリフの世界観を前口上と揃えます(材料が毎試合変わるため、同じキャラクター
+ * でも試合ごとに違うセリフになります)。
+ */
+function speechContextLines(
+  fighter: StoryFighter,
+  ingredients: StoryIngredients,
+): string[] {
+  return [
+    `あなたは「${fighter.title}」こと ${fighter.name}。${fighter.description}`,
+    `舞台は${ingredients.stage}。相手との関係は${ingredients.relation}。`,
+  ];
+}
+
+/** 必殺技を放つ瞬間の決めゼリフ用プロンプトを組み立てます。 */
+export function buildSpecialMoveSpeechPrompt(
+  fighter: StoryFighter,
+  move: { name: string; description: string },
+  ingredients: StoryIngredients,
+): string {
+  return [
+    ...speechContextLines(fighter, ingredients),
+    `いま必殺技「${move.name}」(${move.description})を放ちます。`,
+    "技を放つ瞬間の決めゼリフを15文字以内で1つ書いてください。",
+  ].join("\n");
+}
+
+/** 勝利の瞬間の決めゼリフ用プロンプトを組み立てます。 */
+export function buildVictorySpeechPrompt(
+  fighter: StoryFighter,
+  opponentName: string,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    ...speechContextLines(fighter, ingredients),
+    `激闘の末、${opponentName}を打ち破って勝利しました。`,
+    "勝利の瞬間の決めゼリフを15文字以内で1つ書いてください。",
+  ].join("\n");
+}
+
+/** 力尽きて倒れる瞬間の断末魔用プロンプトを組み立てます。 */
+export function buildDefeatSpeechPrompt(
+  fighter: StoryFighter,
+  opponentName: string,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    ...speechContextLines(fighter, ingredients),
+    `激闘の末、${opponentName}に敗れて力尽きました。`,
+    "倒れる瞬間の断末魔のセリフを15文字以内で1つ書いてください。",
+  ].join("\n");
+}
+
 /** バトル開始時の煽り実況用プロンプトを組み立てます。 */
 export function buildIntroPrompt(
   first: { name: string; title: string },
@@ -87,9 +185,19 @@ export type NarrationParams = {
   | { type: "counter"; passiveName: string; damage: number }
 );
 
-/** 1アクション分の実況用プロンプトを組み立てます。 */
+/**
+ * 1アクション分の実況用プロンプトを組み立てます。
+ *
+ * とどめの一撃(残りHP0)の特殊処理: 「残りHPは0/200」をそのまま渡すと、
+ * 小型モデルが「残りHPはあと少しだ」や最大HPの数値を読み上げるなど
+ * 不自然な実況を返すため、HP0のときは決着の一撃であることを伝えて
+ * 残りHPの数値には触れさせません。
+ */
 export function buildNarrationPrompt(params: NarrationParams): string {
-  const hpInfo = `残りHPは${params.targetHpAfter}/${params.targetMaxHp}`;
+  const hpInfo =
+    params.targetHpAfter === 0
+      ? `この一撃で${params.targetName}は力尽きて倒れました。決着のとどめの一撃として実況し、HPの数値には触れないでください`
+      : `残りHPは${params.targetHpAfter}/${params.targetMaxHp}`;
   switch (params.type) {
     case "miss":
       return `${params.actorName}の攻撃は${params.targetName}にかわされて外れました。この場面を実況してください。`;
