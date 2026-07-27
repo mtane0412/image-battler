@@ -2,12 +2,15 @@
  * @file キャラクターの永続化リポジトリです。localStorage に JSON で保存します。
  * サーバーを使わない完全無料運用のため、永続化はブラウザ内で完結します。
  *
- * Fail-Fast 方針: 保存データの破損や容量超過は補正・黙殺せず StorageError を
- * 投げ、UI側でユーザーに通知します。
+ * 保存形式はバージョン付きです({ version, characters })。
  *
- * 旧形式データの自動移行: MP・必殺技タイプ・パッシブ導入前(v0.1.0)の
- * キャラクターは読み込み時にデフォルト値を補完し、対戦可能なまま残します
- * (ユーザーの作成済みキャラクターを失わせないための明示的な移行処理です)。
+ * Fail-Fast 方針: 保存データの破損・容量超過・未対応バージョンは補正・黙殺せず
+ * StorageError を投げ、UI側でユーザーに通知します。
+ *
+ * 旧形式データの自動移行: バージョンのない生の配列は旧形式として読み込み時に
+ * 移行します(ユーザーの作成済みキャラクターを失わせないための明示的な処理です):
+ * - v0.1.0(MP・必殺技タイプ・パッシブ導入前)のキャラクターはデフォルト値を補完
+ * - HP範囲拡大(50〜150 → 100〜300)前のキャラクターはHPを2倍に補正
  */
 import type { Character } from "../types";
 
@@ -15,9 +18,17 @@ import type { Character } from "../types";
 const DEFAULT_MP = 50;
 /** 旧形式キャラクターの必殺技に補完するデフォルトの消費MPです。 */
 const DEFAULT_SPECIAL_MP_COST = 30;
+/** HP範囲拡大(50〜150 → 100〜300)に合わせて旧形式キャラクターのHPに掛ける倍率です。 */
+const HP_MIGRATION_FACTOR = 2;
 
 /** localStorage のキーです。 */
 export const STORAGE_KEY = "image-battler:characters";
+
+/**
+ * 保存データのスキーマバージョンです。
+ * バージョンのない生の配列(HP範囲拡大前の形式)は旧形式として自動移行します。
+ */
+export const STORAGE_VERSION = 2;
 
 /** 永続化に失敗したときに投げるエラーです。 */
 export class StorageError extends Error {
@@ -41,28 +52,49 @@ export function loadCharacters(storage: Storage = localStorage): Character[] {
       "保存データが壊れています。ブラウザの localStorage を確認してください。",
     );
   }
-  if (!Array.isArray(parsed)) {
-    throw new StorageError("保存データの形式が不正です(配列ではありません)。");
+  // バージョンのない生の配列は旧形式なので自動移行します
+  if (Array.isArray(parsed)) {
+    try {
+      return (parsed as Character[]).map(migrateCharacter);
+    } catch (error) {
+      // 要素がキャラクターの形をしていない場合(specialMove欠落など)は
+      // TypeErrorのまま漏らさず、UIが通知できるStorageErrorに変換します
+      throw new StorageError(
+        `保存データの形式が不正です(キャラクターデータを解析できません)。原因: ${String(error)}`,
+      );
+    }
   }
-  try {
-    return (parsed as Character[]).map(migrateCharacter);
-  } catch (error) {
-    // 要素がキャラクターの形をしていない場合(specialMove欠落など)は
-    // TypeErrorのまま漏らさず、UIが通知できるStorageErrorに変換します
-    throw new StorageError(
-      `保存データの形式が不正です(キャラクターデータを解析できません)。原因: ${String(error)}`,
-    );
+  // バージョン付きの現行形式は移行済みのためそのまま返します
+  if (typeof parsed === "object" && parsed !== null) {
+    const envelope = parsed as { version?: unknown; characters?: unknown };
+    if (
+      envelope.version === STORAGE_VERSION &&
+      Array.isArray(envelope.characters)
+    ) {
+      return envelope.characters as Character[];
+    }
+    if (typeof envelope.version === "number") {
+      throw new StorageError(
+        `保存データのバージョン(${envelope.version})に対応していません。`,
+      );
+    }
   }
+  throw new StorageError(
+    "保存データの形式が不正です(バージョン付き形式でも配列でもありません)。",
+  );
 }
 
 /**
- * 旧形式(v0.1.0)のキャラクターに新フィールドのデフォルト値を補完します。
- * 新形式のキャラクターはそのまま返します。
+ * バージョンのない旧形式のキャラクターを現行形式へ移行します。
+ * - v0.1.0(MP・必殺技タイプ・パッシブ導入前): 新フィールドをデフォルト値で補完します
+ * - HP範囲拡大(50〜150 → 100〜300)前: HPを2倍に補正します
  */
 function migrateCharacter(stored: Character): Character {
   const specialMove = stored.specialMove;
   return {
     ...stored,
+    // 旧範囲(50〜150)で生成されたHPを新範囲(100〜300)に合わせて補正します
+    hp: stored.hp * HP_MIGRATION_FACTOR,
     mp: stored.mp ?? DEFAULT_MP,
     specialMove: {
       ...specialMove,
@@ -98,10 +130,13 @@ export function deleteCharacter(
   writeAll(characters, storage);
 }
 
-/** 全件を書き戻します。 */
+/** 全件をバージョン付きの現行形式で書き戻します。 */
 function writeAll(characters: Character[], storage: Storage): void {
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(characters));
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: STORAGE_VERSION, characters }),
+    );
   } catch (error) {
     throw new StorageError(
       `キャラクターの保存に失敗しました。localStorage の容量超過の可能性があります(保存済み: ${characters.length - 1}体)。原因: ${String(error)}`,

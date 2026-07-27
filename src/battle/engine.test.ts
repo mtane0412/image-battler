@@ -123,30 +123,32 @@ describe("simulateBattle: MPと攻撃タイプの必殺技", () => {
 });
 
 describe("simulateBattle: 回復タイプの必殺技", () => {
-  it("HPが60%以下のとき回復技が発動し、自分のHPが回復する", () => {
-    // 1手目: bの攻撃60 * 1.0 - 20 * 0.4 = 52ダメージでaのHPは48(60%以下)
-    // 2手目: aの回復技 round(50 * 1.0) = 50回復でHP 98
+  it("HPが60%以下のとき回復技が発動し、威力の2倍を基準にHPが回復する", () => {
+    // HP範囲の拡大(100〜300)に合わせて、回復量は威力の2倍が基準です。
+    // 1手目: bのクリティカル round((60 * 1.0 - 20 * 0.4) * 1.5) = 78ダメージでaのHPは22(60%以下)
+    // 2手目: aの回復技 round(30 * 2 * 1.0) = 60回復でHP 82
     const 回復役 = makeCharacter({
       id: "a",
       hp: 100,
       defense: 20,
       mp: 60,
       speed: 30,
-      specialMove: makeSpecialMove({ name: "いやしの光", type: "heal", power: 50 }),
+      specialMove: makeSpecialMove({ name: "いやしの光", type: "heal", power: 30 }),
     });
-    const 攻め手 = makeCharacter({ id: "b", attack: 60, mp: 0, speed: 90 });
+    const 攻め手 = makeCharacter({ id: "b", attack: 60, luck: 100, mp: 0, speed: 90 });
     const result = simulateBattle(
       回復役,
       攻め手,
-      sequenceRng([0.5, 0.5, 0.5, 0.1, 0.5]),
+      // [bミス判定, bクリティカル判定(成功), b威力補正, a必殺技判定(発動), a威力補正]
+      sequenceRng([0.5, 0.1, 0.5, 0.1, 0.5]),
     );
     expect(result.events[1]).toMatchObject({
       type: "special-heal",
       moveName: "いやしの光",
-      healed: 50,
+      healed: 60,
       actorId: "a",
       targetId: "a",
-      after: { a: { hp: 98, mp: 30 } },
+      after: { a: { hp: 82, mp: 30 } },
     });
   });
 
@@ -163,7 +165,7 @@ describe("simulateBattle: 回復タイプの必殺技", () => {
   });
 
   it("回復量は最大HPを超えた分が切り捨てられる", () => {
-    // aのHPは100 - 52 = 48。威力80の回復はround(80)=80だが、実際は52だけ回復してHP100
+    // aのHPは100 - 52 = 48。威力80の回復はround(80 * 2)=160だが、実際は52だけ回復してHP100
     const 回復役 = makeCharacter({
       id: "a",
       hp: 100,

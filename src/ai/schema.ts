@@ -25,7 +25,9 @@ export class CharacterParseError extends Error {
 
 /** 各ステータスの許容範囲です。JSON Schema と検証の双方で使用します。 */
 export const STAT_RANGES = {
-  hp: { min: 50, max: 150 },
+  // バトルを長引かせるため、他ステータスに対してHPだけ意図的に高めの範囲です
+  // (変更時は storage/repository.ts の旧データHP移行も見直すこと)
+  hp: { min: 100, max: 300 },
   mp: { min: 30, max: 100 },
   attack: { min: 20, max: 60 },
   defense: { min: 10, max: 50 },

@@ -148,6 +148,19 @@ describe("parseGeneratedStats", () => {
     expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(/hp/);
   });
 
+  it("拡大後のHP範囲の上限(hp=300)を受け入れる", () => {
+    // バトルを長くするためHP範囲は 100〜300 に拡大済みです
+    const payload = { ...validPayload(), hp: 300 };
+    const stats = parseGeneratedStats(JSON.stringify(payload), 許可候補);
+    expect(stats.hp).toBe(300);
+  });
+
+  it("拡大前の旧範囲のHP(hp=50)を拒否する", () => {
+    // 旧範囲(50〜150)の下限は新範囲(100〜300)では範囲外です
+    const payload = { ...validPayload(), hp: 50 };
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(/hp/);
+  });
+
   it("範囲外のMP(mp=999)を拒否する", () => {
     const payload = { ...validPayload(), mp: 999 };
     expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(/mp/);
