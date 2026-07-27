@@ -154,6 +154,9 @@ export function renderBattle(
     const storyPromise = generateBattleStory(
       buildStoryPrompt(first, second, storyIngredients),
     );
+    // 表示前(セッション準備中など)に生成が失敗しても未処理エラーに
+    // ならないよう先に握っておきます(失敗の表示は取得側の try で行います)
+    void storyPromise.catch(() => undefined);
     // 必殺技の決めゼリフは、必殺技を使う予定のキャラクター分だけ先行生成します
     // (バトル展開は事前確定しているため、再生前にまとめて仕込めます)
     const speechPromises = new Map<string, Promise<string>>();
@@ -243,8 +246,6 @@ export function renderBattle(
     // (離脱後にゴングが鳴る・セッションがリークするのを防ぎます)
     if (aborted) {
       narrator?.destroy();
-      // 離脱後にストーリー生成の失敗が未処理エラーにならないよう明示的に無視します
-      storyPromise.catch(() => undefined);
       return;
     }
 
