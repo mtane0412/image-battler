@@ -137,6 +137,57 @@ describe("parseGeneratedStats", () => {
     expect(stats.passive.description).toBe("攻撃を受けると鋭い爪で反撃する");
   });
 
+  it("末尾の文字列値の閉じ引用符が丸ごと欠落する癖を修復してパースできる", () => {
+    // Vercel本番の実機で観測した壊れ方(2026-07-27):
+    // `"description": "相手の攻撃を軽々と回避する。}}` のように、
+    // 最後の文字列値の閉じ引用符が「'」ですらなく丸ごと欠落する
+    const valid = JSON.stringify(validPayload());
+    // 末尾の「"}}」から引用符だけを取り除いて実際の壊れ方を再現する
+    const corrupted = `${valid.slice(0, -3)}}}`;
+    expect(() => JSON.parse(corrupted)).toThrow();
+    const stats = parseGeneratedStats(corrupted, 許可候補);
+    expect(stats.passive.description).toBe("攻撃を受けると鋭い爪で反撃する");
+  });
+
+  it("JSON終端の後ろに続くゴミ(「{」+改行)を取り除いてパースできる", () => {
+    // Vercel本番の実機で観測した壊れ方(2026-07-27):
+    // 完結したJSONの直後に「{」+改行が続く(次のオブジェクトを
+    // 出力し始めたとみられる)。最後の「}」より後ろを切り捨てて修復する
+    const corrupted = `${JSON.stringify(validPayload())}{\n`;
+    expect(() => JSON.parse(corrupted)).toThrow();
+    const stats = parseGeneratedStats(corrupted, 許可候補);
+    expect(stats.title).toBe("深淵の眠り猫");
+  });
+
+  it("閉じ引用符の欠落と末尾ゴミが同時に起きた実例を修復してパースできる", () => {
+    // Vercel本番で実際に発生した組み合わせ:
+    // `…回避する。}}{\n` (閉じ引用符欠落 + 末尾に「{」+改行)
+    const valid = JSON.stringify(validPayload());
+    const corrupted = `${valid.slice(0, -3)}}}{\n`;
+    expect(() => JSON.parse(corrupted)).toThrow();
+    const stats = parseGeneratedStats(corrupted, 許可候補);
+    expect(stats.passive.description).toBe("攻撃を受けると鋭い爪で反撃する");
+  });
+
+  it("閉じ引用符が ' になる癖と末尾ゴミが同時に起きても修復してパースできる", () => {
+    // 既知の「'」癖(#2で修復済み)と末尾ゴミは独立した癖のため、
+    // 同時に発生する組み合わせにも備える
+    const valid = JSON.stringify(validPayload());
+    const corrupted = `${valid.slice(0, -3)}'}}{\n`;
+    expect(() => JSON.parse(corrupted)).toThrow();
+    const stats = parseGeneratedStats(corrupted, 許可候補);
+    expect(stats.passive.description).toBe("攻撃を受けると鋭い爪で反撃する");
+  });
+
+  it("数値の直後に余分な閉じ括弧がある出力は修復せず拒否する(Fail-Fast)", () => {
+    // 引用符の補完は末尾の閉じ括弧の直前が数字の場合は行わない
+    // (正常な数値終わりの構造に引用符を挿入すると数値を壊すため)。
+    // 修復できない構造の壊れ方はそのまま CharacterParseError で拒否する
+    expect(() => parseGeneratedStats('{"hp": 100, "mp": 60}}', 許可候補)).toThrow(
+      CharacterParseError,
+    );
+  });
+
   it("修復しても解釈できない出力は拒否する", () => {
     expect(() => parseGeneratedStats('{"hp": 100, "mp":', 許可候補)).toThrow(
       CharacterParseError,
