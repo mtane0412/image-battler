@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "fetch:se": "node scripts/fetch-se.mjs",
     "test:watch": "vitest",
     "lint": "eslint .",
     "type-check": "tsc --noEmit"
