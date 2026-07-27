@@ -636,6 +636,8 @@ img {
 /* ---------- バトル画面 ---------- */
 
 .stage {
+  /* 必殺技カットイン(.cutin)を重ねる基準にします */
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -828,6 +830,10 @@ img {
   color: #bcd0ff;
 }
 
+.log-speech {
+  color: #ffc4e1;
+}
+
 .log-mic {
   font-family: var(--font-body);
   font-size: 10px;
@@ -849,6 +855,112 @@ img {
   content: "▼";
   margin-left: 4px;
   animation: blink 0.8s steps(2) infinite;
+}
+
+/* 必殺技カットイン(ステージ上のオーバーレイ) */
+.cutin {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(5, 7, 15, 0.85);
+  animation: cutin-pop 0.22s ease-out;
+}
+
+/* 背景の集中線(回転するストライプ) */
+.cutin-lines {
+  position: absolute;
+  inset: -60%;
+  background: repeating-conic-gradient(
+    rgba(255, 255, 255, 0.09) 0deg 6deg,
+    transparent 6deg 16deg
+  );
+  animation: cutin-spin 2.4s linear infinite;
+}
+
+.cutin-portrait {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  object-fit: cover;
+  border: 4px solid var(--gold);
+  border-radius: 10px;
+  box-shadow: 0 0 26px rgba(255, 210, 74, 0.55);
+}
+
+.cutin-left .cutin-portrait {
+  animation: cutin-slide-left 0.3s ease-out;
+}
+
+.cutin-right .cutin-portrait {
+  animation: cutin-slide-right 0.3s ease-out;
+}
+
+.cutin-balloon {
+  position: relative;
+  max-width: 55%;
+}
+
+.cutin-move {
+  margin: 0 0 6px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+}
+
+.cutin-speech {
+  margin: 0;
+  font-family: var(--font-dot);
+  font-size: 22px;
+  line-height: 1.5;
+  color: #fff;
+  text-shadow: 0 0 12px rgba(255, 210, 74, 0.8);
+}
+
+@keyframes cutin-pop {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes cutin-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes cutin-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cutin-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .result-banner {

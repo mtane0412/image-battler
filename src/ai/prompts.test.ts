@@ -8,6 +8,7 @@ import {
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
+  buildSpecialMoveSpeechPrompt,
   buildStoryPrompt,
 } from "./prompts";
 
@@ -159,6 +160,44 @@ describe("buildStoryPrompt", () => {
     // 前口上はバトル再生前に表示するため、結末を書かせない指示が必要
     const prompt = buildStoryPrompt(mofukichi, gabuta, ingredients);
     expect(prompt).toContain("勝敗");
+  });
+});
+
+describe("buildSpecialMoveSpeechPrompt", () => {
+  const mofukichi = {
+    name: "もふ吉",
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+  };
+  const move = {
+    name: "爪とぎクラッシュ",
+    description: "鋭い爪で連続攻撃を繰り出す",
+  };
+  const ingredients = { stage: "満月の廃神殿", relation: "宿命のライバル" };
+
+  it("キャラクターの名前・二つ名・紹介文が含まれる", () => {
+    const prompt = buildSpecialMoveSpeechPrompt(mofukichi, move, ingredients);
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("深淵の眠り猫");
+    expect(prompt).toContain("よく寝る猫の戦士です");
+  });
+
+  it("必殺技の名前と演出説明が含まれる", () => {
+    const prompt = buildSpecialMoveSpeechPrompt(mofukichi, move, ingredients);
+    expect(prompt).toContain("爪とぎクラッシュ");
+    expect(prompt).toContain("鋭い爪で連続攻撃を繰り出す");
+  });
+
+  it("抽選した舞台と因縁が含まれる(前口上と世界観を揃えるため)", () => {
+    const prompt = buildSpecialMoveSpeechPrompt(mofukichi, move, ingredients);
+    expect(prompt).toContain("満月の廃神殿");
+    expect(prompt).toContain("宿命のライバル");
+  });
+
+  it("短いセリフを1つだけ求める指示が含まれる", () => {
+    // 小型モデルが長文を返さないよう、文字数の上限を明示する
+    const prompt = buildSpecialMoveSpeechPrompt(mofukichi, move, ingredients);
+    expect(prompt).toContain("15文字");
   });
 });
 

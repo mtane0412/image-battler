@@ -11,6 +11,12 @@
  * (ai/story.ts)とキャラクター設定から短いストーリーを生成して表示します。
  * モデルは決定論的なため、抽選材料が毎試合違うストーリーを担保します。
  *
+ * 必殺技セリフ+カットイン: バトル展開は再生前に全イベントが確定しているため、
+ * 必殺技を使う予定のキャラクターの決めゼリフを再生開始時に先行生成します。
+ * 必殺技イベントの時点で生成が間に合っていればカットイン演出付きで表示し、
+ * 上限時間(SPEECH_WAIT_LIMIT_MS)までに間に合わなければセリフなしで進行します
+ * (テンポを守るための明示的な仕様です)。
+ *
  * 実況の対象: 行動イベント(通常攻撃・ミス・必殺技・反撃)のみ実況します。
  * 毎ターン発生しうる状態異常の経過(スリップダメージ・行動不能など)や
  * パッシブによる回復(life-steal / regenerate)は実況せず、メカニカルログ
@@ -27,12 +33,14 @@ import { simulateBattle } from "../battle/engine";
 import {
   createNarrationSession,
   generateBattleStory,
+  generateSpecialMoveSpeech,
   narrateOnce,
 } from "../ai/nano";
 import {
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
+  buildSpecialMoveSpeechPrompt,
   buildStoryPrompt,
   type NarrationParams,
 } from "../ai/prompts";
@@ -51,6 +59,10 @@ import {
 const EVENT_INTERVAL_MS = 450;
 /** タイプライター表示の1文字あたりの間隔(ミリ秒)です。 */
 const TYPE_INTERVAL_MS = 28;
+/** 必殺技セリフの生成を待つ上限(ミリ秒)です。超えたらセリフなしで進行します。 */
+const SPEECH_WAIT_LIMIT_MS = 2500;
+/** 必殺技カットインの表示時間(ミリ秒)です。 */
+const CUTIN_DURATION_MS = 1600;
 
 /** バトル中の1ファイターの表示と設定をまとめた参加者情報です。 */
 interface BattleParticipant {
@@ -72,6 +84,8 @@ export function renderBattle(
 
   // 画面を離れたら再生ループを止めるためのフラグです
   let aborted = false;
+  // セリフ生成失敗の警告を一度だけ表示するためのフラグです
+  let speechFailureNotified = false;
 
   // 効果音の準備(バトル開始前に先読みします)
   const sePlayer = createSePlayer();
@@ -126,11 +140,36 @@ export function renderBattle(
   /** バトル全体を再生します。 */
   async function playBattle(): Promise<void> {
     const result = simulateBattle(first, second, Math.random);
+    // 前口上とセリフで共用するストーリー材料(舞台・因縁)を抽選します。
+    // 材料が毎試合変わることが、決定論的なモデルでの変化の源です
+    const storyIngredients = sampleStoryIngredients();
     // 前口上(ストーリー)の生成は待ち時間を稼ぐため最初に開始し、
-    // 実況セッションの準備と並行させます。材料の抽選が毎試合の変化の源です
+    // 実況セッションの準備と並行させます
     const storyPromise = generateBattleStory(
-      buildStoryPrompt(first, second, sampleStoryIngredients()),
+      buildStoryPrompt(first, second, storyIngredients),
     );
+    // 必殺技の決めゼリフは、必殺技を使う予定のキャラクター分だけ先行生成します
+    // (バトル展開は事前確定しているため、再生前にまとめて仕込めます)
+    const speechPromises = new Map<string, Promise<string>>();
+    for (const character of [first, second]) {
+      const usesSpecial = result.events.some(
+        (event) => isSpecialMoveEvent(event) && event.actorId === character.id,
+      );
+      if (!usesSpecial) {
+        continue;
+      }
+      const promise = generateSpecialMoveSpeech(
+        buildSpecialMoveSpeechPrompt(
+          character,
+          character.specialMove,
+          storyIngredients,
+        ),
+      );
+      // 待ち上限超過や再生打ち切りで誰も await しなかった場合に
+      // 未処理エラーとならないよう、先に握っておきます(失敗の通知は取得側で行います)
+      void promise.catch(() => undefined);
+      speechPromises.set(character.id, promise);
+    }
     // 必殺技の固有効果音はキャラクターごとに一度だけ決定します
     const byId: Record<string, BattleParticipant> = {
       [first.id]: {
@@ -224,6 +263,17 @@ export function renderBattle(
       if (seKey !== null) {
         sePlayer.play(seKey);
       }
+      // 必殺技は決めゼリフ+カットインを先に挟みます(間に合わなければスキップ)
+      if (isSpecialMoveEvent(event)) {
+        const speech = await waitForSpeech(speechPromises.get(event.actorId));
+        if (aborted) {
+          return;
+        }
+        if (speech !== null) {
+          await showCutin(actor, speech);
+          await typeLine(`${actor.character.name}「${speech}」`, "speech");
+        }
+      }
       animateEvent(actor.block, target.block, event);
       await typeLine(describeEvent(event, names), logKindFor(event));
       applySnapshots(event.after, byId);
@@ -300,6 +350,70 @@ export function renderBattle(
   }
 
   /**
+   * 先行生成中の決めゼリフを上限時間(SPEECH_WAIT_LIMIT_MS)まで待ちます。
+   * セリフの予定がない・間に合わない場合は null を返し、演出なしで進行します。
+   * 生成失敗は初回のみ警告を表示します(暗黙に握りつぶさない)。
+   */
+  async function waitForSpeech(
+    promise: Promise<string> | undefined,
+  ): Promise<string | null> {
+    if (promise === undefined) {
+      return null;
+    }
+    // タイムアウト側の解決値をセリフ本文と区別するための目印です
+    const timeoutMark = Symbol("speech-timeout");
+    try {
+      const outcome = await Promise.race([
+        promise,
+        pacedWait(SPEECH_WAIT_LIMIT_MS).then(() => timeoutMark),
+      ]);
+      return typeof outcome === "string" ? outcome : null;
+    } catch (error) {
+      if (!speechFailureNotified) {
+        speechFailureNotified = true;
+        await typeLine(
+          `(セリフの生成に失敗したため、セリフなしで進行します: ${error instanceof Error ? error.message : String(error)})`,
+          "warn",
+        );
+      }
+      return null;
+    }
+  }
+
+  /**
+   * 必殺技カットイン(キャラクター画像+決めゼリフ)をステージ上に重ねて表示します。
+   * アニメーション抑制環境・非表示タブでは表示しません。セリフ本文はログ行でも
+   * 表示するため、カットインが出なくても情報は欠けません。
+   */
+  async function showCutin(
+    participant: BattleParticipant,
+    speech: string,
+  ): Promise<void> {
+    if (reducedMotion || document.hidden) {
+      return;
+    }
+    const side = participant.block === p1 ? "cutin-left" : "cutin-right";
+    const overlay = el("div", { className: `cutin ${side}` }, [
+      el("div", { className: "cutin-lines" }),
+      el("img", {
+        className: "cutin-portrait",
+        // セリフはログ行で読み上げられるため、画像は装飾扱いにします
+        attrs: { src: participant.character.imageDataUrl, alt: "" },
+      }),
+      el("div", { className: "cutin-balloon" }, [
+        el("p", {
+          className: "cutin-move",
+          text: `必殺技 ${participant.character.specialMove.name}`,
+        }),
+        el("p", { className: "cutin-speech", text: `「${speech}」` }),
+      ]),
+    ]);
+    stage.append(overlay);
+    await pacedWait(CUTIN_DURATION_MS);
+    overlay.remove();
+  }
+
+  /**
    * イベント種別に応じたアニメーションを適用します。
    * 自己対象のイベントでは actor と target が同じブロックになります。
    */
@@ -356,7 +470,7 @@ export function renderBattle(
    */
   async function typeLine(
     text: string,
-    kind: "system" | "narration" | "special" | "warn" | "story",
+    kind: "system" | "narration" | "special" | "warn" | "story" | "speech",
   ): Promise<void> {
     const line = el("p", { className: `log-line log-${kind} typing` });
     if (kind === "narration") {
@@ -393,6 +507,16 @@ export function renderBattle(
     line.classList.remove("typing");
     logWindow.scrollTop = logWindow.scrollHeight;
   }
+}
+
+/** 必殺技イベント(決めゼリフ+カットインの対象)かどうかを判定します。 */
+function isSpecialMoveEvent(event: BattleEvent): boolean {
+  return (
+    event.type === "special-attack" ||
+    event.type === "special-heal" ||
+    event.type === "special-ailment" ||
+    event.type === "special-buff"
+  );
 }
 
 /**

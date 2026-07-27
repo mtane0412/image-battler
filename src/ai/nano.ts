@@ -11,6 +11,7 @@ import { samplePassiveCandidates } from "./passives";
 import {
   CHARACTER_SYSTEM_PROMPT,
   NARRATION_SYSTEM_PROMPT,
+  SPEECH_SYSTEM_PROMPT,
   STORY_SYSTEM_PROMPT,
   buildCharacterPrompt,
 } from "./prompts";
@@ -132,16 +133,19 @@ export async function createNarrationSession(): Promise<LanguageModelSession> {
 }
 
 /**
- * バトル前口上(ストーリー)を1回だけ生成します。
- * 1バトルにつき1度しか使わないため、専用セッションを作成して使い捨てます。
- * @param prompt buildStoryPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * 使い捨てのテキストセッションを作成して1回だけ生成する共通処理です。
+ * 前口上・セリフのように使用回数が少ない生成で、セッションの持ち回りを
+ * 不要にするために使います。生成の成否に関わらずセッションを破棄します。
  * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
  */
-export async function generateBattleStory(prompt: string): Promise<string> {
+async function generateOnce(
+  systemPrompt: string,
+  prompt: string,
+): Promise<string> {
   const api = requireLanguageModel();
   const session = await api.create({
     ...TEXT_SESSION_IO,
-    initialPrompts: [{ role: "system", content: STORY_SYSTEM_PROMPT }],
+    initialPrompts: [{ role: "system", content: systemPrompt }],
   });
   try {
     const response = await session.prompt(prompt);
@@ -149,6 +153,26 @@ export async function generateBattleStory(prompt: string): Promise<string> {
   } finally {
     session.destroy();
   }
+}
+
+/**
+ * バトル前口上(ストーリー)を1回だけ生成します。
+ * @param prompt buildStoryPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateBattleStory(prompt: string): Promise<string> {
+  return generateOnce(STORY_SYSTEM_PROMPT, prompt);
+}
+
+/**
+ * 必殺技の決めゼリフを1回だけ生成します。
+ * @param prompt buildSpecialMoveSpeechPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateSpecialMoveSpeech(
+  prompt: string,
+): Promise<string> {
+  return generateOnce(SPEECH_SYSTEM_PROMPT, prompt);
 }
 
 /**

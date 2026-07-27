@@ -89,6 +89,32 @@ export function buildStoryPrompt(
   ].join("\n");
 }
 
+/** 必殺技セリフ生成セッションのシステムプロンプトです。 */
+export const SPEECH_SYSTEM_PROMPT = [
+  "あなたは対戦ゲームのキャラクターになりきってセリフを作る脚本家です。",
+  "キャラクターの設定に合った短い決めゼリフを日本語で1つだけ作ってください。",
+  "セリフ本文のみを出力し、前置きやかぎ括弧・引用符は不要です。",
+].join("");
+
+/**
+ * 必殺技を放つ瞬間の決めゼリフ用プロンプトを組み立てます。
+ * 舞台と因縁(ingredients)は前口上(buildStoryPrompt)と同じ抽選材料を渡し、
+ * セリフの世界観を前口上と揃えます(材料が毎試合変わるため、同じキャラクター・
+ * 同じ技でも試合ごとに違うセリフになります)。
+ */
+export function buildSpecialMoveSpeechPrompt(
+  fighter: StoryFighter,
+  move: { name: string; description: string },
+  ingredients: StoryIngredients,
+): string {
+  return [
+    `あなたは「${fighter.title}」こと ${fighter.name}。${fighter.description}`,
+    `舞台は${ingredients.stage}。相手との関係は${ingredients.relation}。`,
+    `いま必殺技「${move.name}」(${move.description})を放ちます。`,
+    "技を放つ瞬間の決めゼリフを15文字以内で1つ書いてください。",
+  ].join("\n");
+}
+
 /** バトル開始時の煽り実況用プロンプトを組み立てます。 */
 export function buildIntroPrompt(
   first: { name: string; title: string },
