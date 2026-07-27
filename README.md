@@ -28,7 +28,7 @@ Gemini Nano(Prompt API)の利用には以下が必要です。
 
 ```bash
 npm install
-npm run fetch:se    # 効果音素材のダウンロード(初回のみ。効果音ラボから取得)
+npm run fetch:se    # 効果音素材のダウンロード(初回と素材一覧の変更時。効果音ラボから取得)
 npm run dev         # 開発サーバー(http://localhost:5173)
 npm test            # テスト実行(Vitest)
 npm run lint        # Lint

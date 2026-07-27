@@ -9,7 +9,7 @@
  * ダウンロード対象は src/audio/se-manifest.json が唯一の情報源です。
  * 取得済みのファイルはスキップするため、再実行しても差分のみ取得します。
  */
-import { mkdir, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -74,7 +74,11 @@ for (const [key, entry] of Object.entries(manifest)) {
     );
   }
   const data = Buffer.from(await response.arrayBuffer());
-  await writeFile(outputPath, data);
+  // 途中終了で欠けたファイルを「取得済み」と誤認しないよう、
+  // 一時ファイルに書き込んでからリネームで確定します(原子的な配置)
+  const tempPath = `${outputPath}.download`;
+  await writeFile(tempPath, data);
+  await rename(tempPath, outputPath);
   downloadedCount += 1;
   console.log(`取得: ${entry.file} (${entry.label})`);
   await wait(DOWNLOAD_INTERVAL_MS);

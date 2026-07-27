@@ -125,6 +125,12 @@ export function renderBattle(
       );
     }
 
+    // 実況セッションの準備待ちの間に画面を離れた場合はここで打ち切ります
+    // (離脱後にゴングが鳴る・セッションがリークするのを防ぎます)
+    if (aborted) {
+      narrator?.destroy();
+      return;
+    }
     sePlayer.play("start");
     await typeLine(
       `${first.name} 対 ${second.name}! バトルスタート!`,
