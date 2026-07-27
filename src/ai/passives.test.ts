@@ -33,4 +33,10 @@ describe("samplePassiveCandidates", () => {
       "berserk",
     ]);
   });
+
+  it("乱数が範囲外([0,1)以外)の値を返す場合はエラーになる(Fail-Fast)", () => {
+    expect(() => samplePassiveCandidates(() => 1)).toThrow(/乱数/);
+    expect(() => samplePassiveCandidates(() => -0.1)).toThrow(/乱数/);
+    expect(() => samplePassiveCandidates(() => Number.NaN)).toThrow(/乱数/);
+  });
 });

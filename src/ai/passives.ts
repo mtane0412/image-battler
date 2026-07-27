@@ -23,7 +23,14 @@ export function samplePassiveCandidates(
   const pool: PassiveSkillId[] = [...PASSIVE_SKILL_IDS];
   const picked: PassiveSkillId[] = [];
   while (picked.length < PASSIVE_CANDIDATE_COUNT) {
-    const index = Math.floor(rng() * pool.length);
+    // インデックス計算の前に乱数値そのものを検証します([0, 1) 以外は不正)
+    const value = rng();
+    if (!Number.isFinite(value) || value < 0 || value >= 1) {
+      throw new Error(
+        `パッシブスキル候補の抽選に失敗しました(乱数が範囲[0, 1)外です: ${value})`,
+      );
+    }
+    const index = Math.floor(value * pool.length);
     const [id] = pool.splice(index, 1);
     if (id === undefined) {
       throw new Error(
