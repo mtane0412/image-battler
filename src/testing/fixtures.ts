@@ -25,7 +25,7 @@ export function makeSpecialMove(
 
 /**
  * テスト用のパッシブスキルを生成します。
- * id を指定して効果を選び、名前は省略時に id がそのまま入ります。
+ * id を指定して効果を選び、名前は省略時に「テストパッシブ(id)」になります。
  */
 export function makePassive(
   id: PassiveSkill["id"],

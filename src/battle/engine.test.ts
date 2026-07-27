@@ -491,6 +491,15 @@ describe("simulateBattle: パッシブスキル", () => {
   });
 });
 
+describe("simulateBattle: 入力検証", () => {
+  it("両者のIDが同一の場合はエラーになる(Fail-Fast)", () => {
+    // スナップショットがIDをキーにするため、同一IDでは状態が上書きされてしまう
+    const a = makeCharacter({ id: "same-id", mp: 0 });
+    const b = makeCharacter({ id: "same-id", mp: 0 });
+    expect(() => simulateBattle(a, b, sequenceRng([]))).toThrow(/同一/);
+  });
+});
+
 describe("simulateBattle: 行動順", () => {
   it("素早さが高いキャラクターが先攻になる", () => {
     const 韋駄天 = makeCharacter({ id: "fast", name: "韋駄天", speed: 80, mp: 0 });

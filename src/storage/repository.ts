@@ -44,7 +44,15 @@ export function loadCharacters(storage: Storage = localStorage): Character[] {
   if (!Array.isArray(parsed)) {
     throw new StorageError("保存データの形式が不正です(配列ではありません)。");
   }
-  return (parsed as Character[]).map(migrateCharacter);
+  try {
+    return (parsed as Character[]).map(migrateCharacter);
+  } catch (error) {
+    // 要素がキャラクターの形をしていない場合(specialMove欠落など)は
+    // TypeErrorのまま漏らさず、UIが通知できるStorageErrorに変換します
+    throw new StorageError(
+      `保存データの形式が不正です(キャラクターデータを解析できません)。原因: ${String(error)}`,
+    );
+  }
 }
 
 /**

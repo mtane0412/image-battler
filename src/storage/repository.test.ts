@@ -101,6 +101,16 @@ describe("異常系(Fail-Fast)", () => {
     expect(() => loadCharacters()).toThrow(StorageError);
   });
 
+  it("配列要素がキャラクターの形をしていない場合はStorageErrorを投げる", () => {
+    // specialMove を持たない要素は移行処理でTypeErrorになるため、
+    // StorageError に変換してUI側で通知できるようにする
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(["文字列の不正データ", { name: "specialMoveなし" }]),
+    );
+    expect(() => loadCharacters()).toThrow(StorageError);
+  });
+
   it("配列以外のJSONが保存されている場合はStorageErrorを投げる", () => {
     localStorage.setItem(STORAGE_KEY, '{"name":"もふ吉"}');
     expect(() => loadCharacters()).toThrow(StorageError);

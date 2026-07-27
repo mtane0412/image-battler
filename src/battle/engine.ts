@@ -164,6 +164,11 @@ export function simulateBattle(
   second: Character,
   rng: Rng,
 ): BattleResult {
+  // スナップショット(after)はキャラクターIDをキーにするため、
+  // 同一IDでは一方の状態が黙って上書きされてしまいます(Fail-Fast)
+  if (first.id === second.id) {
+    throw new Error(`両者のキャラクターIDが同一です: ${first.id}`);
+  }
   const stateA = createState(first);
   const stateB = createState(second);
 

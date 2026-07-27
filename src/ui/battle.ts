@@ -456,9 +456,10 @@ function fighterBlock(character: Character, side: "p1" | "p2"): FighterBlock {
     className: "hp-text",
     text: `${character.hp}/${character.hp}`,
   });
+  // 最大MP0のキャラ(移行データ等)で100%表示にならないよう、初期値も比率で計算します
   const mpFill = el("span", {
     className: "mp-fill",
-    attrs: { style: "width:100%" },
+    attrs: { style: `width:${character.mp === 0 ? 0 : 100}%` },
   });
   const mpText = el("span", {
     className: "mp-text",
