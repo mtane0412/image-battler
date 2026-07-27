@@ -89,6 +89,19 @@ img {
   color: var(--muted);
 }
 
+/*
+ * バトル画面の表示中はヘッダーを圧縮して縦方向のスペースを確保します
+ * (ステージ+メッセージウィンドウを1画面に収めるためです)。
+ * このアプリは Gemini Nano の都合で Chrome 専用のため :has() を使用できます。
+ */
+body:has(.battle-screen) .app-header {
+  padding: 10px 20px 0;
+}
+
+body:has(.battle-screen) .app-logo {
+  font-size: 18px;
+}
+
 .app-main {
   max-width: 980px;
   margin: 0 auto;
@@ -668,6 +681,11 @@ img {
 
 /* ---------- バトル画面 ---------- */
 
+/* バトル画面は縦方向に詰めます(メッセージウィンドウを1画面に収めるため) */
+.battle-screen {
+  margin-top: 8px;
+}
+
 .stage {
   /* 必殺技カットイン(.cutin)を重ねる基準にします */
   position: relative;
@@ -675,7 +693,7 @@ img {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin: 10px 0 24px;
+  margin: 6px 0 14px;
 }
 
 .stage-vs {
@@ -687,7 +705,8 @@ img {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(260px, 38vw);
+  /* 情報パネル追加後もステージ全体が縦に伸びすぎないよう幅を抑えます */
+  width: min(210px, 38vw);
 }
 
 .fighter-portrait {
@@ -717,17 +736,17 @@ img {
 .fighter-title {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   color: var(--gold);
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   text-align: center;
 }
 
 .fighter-name {
   font-family: var(--font-dot);
-  font-size: 20px;
-  margin: 2px 0 8px;
+  font-size: 18px;
+  margin: 2px 0 6px;
   text-align: center;
 }
 
@@ -794,17 +813,17 @@ img {
 /* 観戦者向けのファイター情報パネル(必殺技・特性・パラメータ) */
 .fighter-info {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 6px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 /* 必殺技・特性の行はカード表示(.card-special / .card-passive)の配色を踏襲します */
 .fighter-special,
 .fighter-passive {
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: 4px 7px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -916,8 +935,8 @@ img {
   box-shadow:
     inset 0 0 0 4px #05070f,
     inset 0 0 0 6px rgba(238, 241, 255, 0.85);
-  padding: 20px 22px;
-  height: 250px;
+  padding: 16px 22px;
+  height: 220px;
   overflow-y: auto;
   font-family: var(--font-dot);
   font-size: 15px;
