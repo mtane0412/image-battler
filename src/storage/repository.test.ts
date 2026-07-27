@@ -123,6 +123,18 @@ describe("保存データのバージョン管理", () => {
     );
     expect(() => loadCharacters()).toThrow(StorageError);
   });
+
+  it("バージョン付きデータに不正な要素が含まれる場合はStorageErrorを投げる(Fail-Fast)", () => {
+    // 手動編集などで壊れたバージョン付きデータも旧形式と同様に検出する
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        characters: [null, { name: "specialMoveなし" }],
+      }),
+    );
+    expect(() => loadCharacters()).toThrow(StorageError);
+  });
 });
 
 describe("異常系(Fail-Fast)", () => {

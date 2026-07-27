@@ -64,13 +64,18 @@ export function loadCharacters(storage: Storage = localStorage): Character[] {
       );
     }
   }
-  // バージョン付きの現行形式は移行済みのためそのまま返します
+  // バージョン付きの現行形式は移行済みのため、要素の形だけ検証して返します
   if (typeof parsed === "object" && parsed !== null) {
     const envelope = parsed as { version?: unknown; characters?: unknown };
     if (
       envelope.version === STORAGE_VERSION &&
       Array.isArray(envelope.characters)
     ) {
+      if (!envelope.characters.every(isCharacterLike)) {
+        throw new StorageError(
+          "保存データの形式が不正です(キャラクターデータを解析できません)。",
+        );
+      }
       return envelope.characters as Character[];
     }
     if (typeof envelope.version === "number") {
@@ -82,6 +87,19 @@ export function loadCharacters(storage: Storage = localStorage): Character[] {
   throw new StorageError(
     "保存データの形式が不正です(バージョン付き形式でも配列でもありません)。",
   );
+}
+
+/**
+ * 保存済みキャラクターとして最低限の形をしているかを検証します。
+ * 旧形式の移行(migrateCharacter)が specialMove へのアクセスで実質的に行っている
+ * 検証と同等の水準です(全フィールドの厳密検証は生成時 ai/schema.ts が担います)。
+ */
+function isCharacterLike(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const specialMove = (value as { specialMove?: unknown }).specialMove;
+  return typeof specialMove === "object" && specialMove !== null;
 }
 
 /**
