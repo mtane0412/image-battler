@@ -219,11 +219,20 @@ export function renderBattle(
       [second.id]: second.name,
     };
 
+    // 初回はセッション準備と前口上の生成で数秒待つため、固まって見えないよう
+    // ローディング行を表示します(最初のメッセージが出る前に取り除きます)
+    const loadingLine = el("p", {
+      className: "log-line log-loading",
+      text: "バトルのじゅんびちゅう",
+    });
+    logWindow.append(loadingLine);
+
     // 実況セッションの用意(失敗は明示してメカニカルログのみで続行します)
     let narrator: LanguageModelSession | null = null;
     try {
       narrator = await createNarrationSession();
     } catch (error) {
+      loadingLine.remove();
       await typeLine(
         `(実況を利用できません: ${error instanceof Error ? error.message : String(error)})`,
         "warn",
@@ -240,9 +249,13 @@ export function renderBattle(
     }
 
     // ゴングの前に前口上(ストーリー)を表示します(失敗は明示して続行します)
+    // ローディング行は前口上(または失敗の明示)と入れ替わりで取り除きます
     try {
-      await typeLine(await storyPromise, "story");
+      const story = await storyPromise;
+      loadingLine.remove();
+      await typeLine(story, "story");
     } catch (error) {
+      loadingLine.remove();
       await typeLine(
         `(ストーリーの生成に失敗したため、前口上なしで進行します: ${error instanceof Error ? error.message : String(error)})`,
         "warn",

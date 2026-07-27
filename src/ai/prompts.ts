@@ -185,9 +185,19 @@ export type NarrationParams = {
   | { type: "counter"; passiveName: string; damage: number }
 );
 
-/** 1アクション分の実況用プロンプトを組み立てます。 */
+/**
+ * 1アクション分の実況用プロンプトを組み立てます。
+ *
+ * とどめの一撃(残りHP0)の特殊処理: 「残りHPは0/200」をそのまま渡すと、
+ * 小型モデルが「残りHPはあと少しだ」や最大HPの数値を読み上げるなど
+ * 不自然な実況を返すため、HP0のときは決着の一撃であることを伝えて
+ * 残りHPの数値には触れさせません。
+ */
 export function buildNarrationPrompt(params: NarrationParams): string {
-  const hpInfo = `残りHPは${params.targetHpAfter}/${params.targetMaxHp}`;
+  const hpInfo =
+    params.targetHpAfter === 0
+      ? `この一撃で${params.targetName}は力尽きて倒れました。決着のとどめの一撃として実況し、HPの数値には触れないでください`
+      : `残りHPは${params.targetHpAfter}/${params.targetMaxHp}`;
   switch (params.type) {
     case "miss":
       return `${params.actorName}の攻撃は${params.targetName}にかわされて外れました。この場面を実況してください。`;

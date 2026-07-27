@@ -834,6 +834,17 @@ img {
   color: #ffc4e1;
 }
 
+/* バトル開始前のローディング行(点滅する「…」付き) */
+.log-loading {
+  color: var(--paper);
+  opacity: 0.75;
+}
+
+.log-loading::after {
+  content: "…";
+  animation: blink 0.8s steps(2) infinite;
+}
+
 .log-mic {
   font-family: var(--font-body);
   font-size: 10px;

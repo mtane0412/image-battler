@@ -113,6 +113,40 @@ describe("buildNarrationPrompt", () => {
     expect(prompt).toContain("たけりのポーズ");
   });
 
+  it("とどめの一撃(残りHP0)では残りHPの数値ではなく決着として実況させる", () => {
+    // 「残りHPは0/200」をそのまま渡すと、小型モデルが「あと少しだ」や
+    // 最大HPの数値を読み上げるなど不自然な実況になるため、
+    // HP0のときは決着の一撃であることを伝えて数値に触れさせない
+    const prompt = buildNarrationPrompt({
+      actorName: "もふ吉",
+      targetName: "がぶ太",
+      targetHpAfter: 0,
+      targetMaxHp: 200,
+      type: "attack",
+      critical: true,
+      damage: 45,
+    });
+    expect(prompt).toContain("力尽き");
+    expect(prompt).not.toContain("残りHP");
+    expect(prompt).not.toContain("200");
+  });
+
+  it("必殺技のとどめの一撃(残りHP0)でも残りHPの数値に触れさせない", () => {
+    const prompt = buildNarrationPrompt({
+      actorName: "もふ吉",
+      targetName: "がぶ太",
+      targetHpAfter: 0,
+      targetMaxHp: 200,
+      type: "special-attack",
+      moveName: "爪とぎクラッシュ",
+      damage: 66,
+    });
+    expect(prompt).toContain("爪とぎクラッシュ");
+    expect(prompt).toContain("力尽き");
+    expect(prompt).not.toContain("残りHP");
+    expect(prompt).not.toContain("200");
+  });
+
   it("反撃の実況素材にはパッシブ名とダメージが含まれる", () => {
     const prompt = buildNarrationPrompt({
       actorName: "がぶ太",
