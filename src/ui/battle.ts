@@ -18,6 +18,12 @@ import {
 import { describeEvent } from "./format";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
+import {
+  createSePlayer,
+  seKeyForEvent,
+  selectSpecialSeKey,
+  type SeKey,
+} from "../audio/se";
 
 /** イベント間の待ち時間(ミリ秒)です。 */
 const EVENT_INTERVAL_MS = 450;
@@ -37,6 +43,10 @@ export function renderBattle(
 
   // 画面を離れたら再生ループを止めるためのフラグです
   let aborted = false;
+
+  // 効果音の準備(バトル開始前に先読みします)
+  const sePlayer = createSePlayer();
+  sePlayer.preload();
 
   // --- ステージ(ファイター2体とHPバー) ---
   const p1 = fighterBlock(first, "p1");
@@ -87,9 +97,21 @@ export function renderBattle(
   /** バトル全体を再生します。 */
   async function playBattle(): Promise<void> {
     const result = simulateBattle(first, second, Math.random);
-    const byId: Record<string, { character: Character; block: FighterBlock }> = {
-      [first.id]: { character: first, block: p1 },
-      [second.id]: { character: second, block: p2 },
+    // 必殺技の固有効果音はキャラクターごとに一度だけ決定します
+    const byId: Record<
+      string,
+      { character: Character; block: FighterBlock; specialSeKey: SeKey }
+    > = {
+      [first.id]: {
+        character: first,
+        block: p1,
+        specialSeKey: selectSpecialSeKey(first.specialMove),
+      },
+      [second.id]: {
+        character: second,
+        block: p2,
+        specialSeKey: selectSpecialSeKey(second.specialMove),
+      },
     };
 
     // 実況セッションの用意(失敗は明示してメカニカルログのみで続行します)
@@ -103,6 +125,13 @@ export function renderBattle(
       );
     }
 
+    // 実況セッションの準備待ちの間に画面を離れた場合はここで打ち切ります
+    // (離脱後にゴングが鳴る・セッションがリークするのを防ぎます)
+    if (aborted) {
+      narrator?.destroy();
+      return;
+    }
+    sePlayer.play("start");
     await typeLine(
       `${first.name} 対 ${second.name}! バトルスタート!`,
       "system",
@@ -147,6 +176,7 @@ export function renderBattle(
               specialMoveName: attacker.character.specialMove.name,
             }));
 
+      sePlayer.play(seKeyForEvent(event, attacker.specialSeKey));
       animateAttack(attacker.block, defender.block, event);
       await typeLine(
         describeEvent(
@@ -182,6 +212,7 @@ export function renderBattle(
     if (aborted) {
       return;
     }
+    sePlayer.play(result.winnerId === null ? "draw" : "victory");
     showResult(result.winnerId, byId);
     if (narrator !== null) {
       const winner = result.winnerId === null ? null : byId[result.winnerId];

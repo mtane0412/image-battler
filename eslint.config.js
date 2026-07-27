@@ -9,4 +9,18 @@ export default tseslint.config(
   { ignores: ["dist/", "node_modules/"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    // Node.js で実行する開発用スクリプト(効果音ダウンロード等)のグローバル定義です
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        fetch: "readonly",
+        Buffer: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
 );

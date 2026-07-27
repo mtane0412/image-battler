@@ -1,0 +1,87 @@
+{
+  "start": {
+    "file": "gong-played1.mp3",
+    "source": "https://soundeffect-lab.info/sound/anime/mp3/gong-played1.mp3",
+    "label": "ゴング(バトル開始)"
+  },
+  "attack1": {
+    "file": "punch-middle2.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/punch-middle2.mp3",
+    "label": "パンチ・ミドル(通常攻撃)"
+  },
+  "attack2": {
+    "file": "punch-high1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/punch-high1.mp3",
+    "label": "パンチ・ハイ(通常攻撃)"
+  },
+  "critical": {
+    "file": "punch-heavy1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/punch-heavy1.mp3",
+    "label": "ヘビーパンチ(クリティカル)"
+  },
+  "miss": {
+    "file": "punch-swing1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/punch-swing1.mp3",
+    "label": "パンチ空振り(ミス)"
+  },
+  "victory": {
+    "file": "levelup1.mp3",
+    "source": "https://soundeffect-lab.info/sound/anime/mp3/levelup1.mp3",
+    "label": "レベルアップ(勝利ジングル)"
+  },
+  "draw": {
+    "file": "chan-chan1.mp3",
+    "source": "https://soundeffect-lab.info/sound/anime/mp3/chan-chan1.mp3",
+    "label": "ちゃんちゃん(引き分け)"
+  },
+  "special-flame": {
+    "file": "magic-flame2.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/magic-flame2.mp3",
+    "label": "炎魔法(必殺技: 炎・爆発系)"
+  },
+  "special-ice": {
+    "file": "magic-ice2.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/magic-ice2.mp3",
+    "label": "氷魔法(必殺技: 氷・水系)"
+  },
+  "special-thunder": {
+    "file": "magic-electron2.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/magic-electron2.mp3",
+    "label": "雷魔法(必殺技: 雷系)"
+  },
+  "special-wind": {
+    "file": "magic-wind1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/magic-wind1.mp3",
+    "label": "風魔法(必殺技: 風・嵐系)"
+  },
+  "special-holy": {
+    "file": "magic-attack-holy1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/magic-attack-holy1.mp3",
+    "label": "聖属性攻撃魔法(必殺技: 光・聖系)"
+  },
+  "special-dark": {
+    "file": "magic-attack-darkness1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/magic-attack-darkness1.mp3",
+    "label": "闇属性攻撃魔法(必殺技: 闇・影系)"
+  },
+  "special-quake": {
+    "file": "magic-quake1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/magic-quake1.mp3",
+    "label": "地震魔法(必殺技: 大地・岩系)"
+  },
+  "special-slash": {
+    "file": "large-sword-slash1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/large-sword-slash1.mp3",
+    "label": "大剣で斬る(必殺技: 斬撃・爪系)"
+  },
+  "special-beast": {
+    "file": "dragon-cry1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/dragon-cry1.mp3",
+    "label": "ドラゴンの咆哮(必殺技: 咆哮・牙系)"
+  },
+  "special-impact": {
+    "file": "super-arts-hit1.mp3",
+    "source": "https://soundeffect-lab.info/sound/battle/mp3/super-arts-hit1.mp3",
+    "label": "超必殺技ヒット(必殺技: 汎用)"
+  }
+}
