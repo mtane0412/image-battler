@@ -273,8 +273,9 @@ export function renderCreate(ctx: AppContext): HTMLElement {
     if (availability !== "downloadable" && availability !== "downloading") {
       return;
     }
+    // 非同期で出現する案内のため、role="status" でスクリーンリーダーにも通知します
     area.replaceChildren(
-      el("div", { className: "notice" }, [
+      el("div", { className: "notice", attrs: { role: "status" } }, [
         el("p", {
           text: "初回はAIモデル(Gemini Nano・数GB)のダウンロードが必要です。「ファイターを生成する」を押すと自動でダウンロードが始まります(Wi-Fi推奨)。",
         }),

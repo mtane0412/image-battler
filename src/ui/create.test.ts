@@ -85,6 +85,15 @@ describe("renderCreate: 初回ダウンロードの事前案内", () => {
     expect(notice).not.toBeNull();
     expect(notice?.textContent).toContain("初回はAIモデル");
     expect(notice?.textContent).toContain("ダウンロード");
+    // 非同期で出現する案内をスクリーンリーダーにも通知します
+    expect(notice?.getAttribute("role")).toBe("status");
+  });
+
+  it("モデルがダウンロード途中(downloading)のときも案内を表示する", async () => {
+    vi.mocked(checkNanoAvailability).mockResolvedValue("downloading");
+    const screen = renderCreate(ctx);
+    await flushPromises();
+    expect(screen.querySelector(".notice")).not.toBeNull();
   });
 
   it("モデルがダウンロード済み(available)のとき、案内を表示しない", async () => {
