@@ -43,6 +43,14 @@ function specialTypeLabel(move: SpecialMove): string {
   return SPECIAL_MOVE_TYPE_LABELS[move.type];
 }
 
+/**
+ * 必殺技のメタ情報(タイプ/威力/消費MP)の表示文字列を返します。
+ * カード表示とバトル画面のファイター情報パネルで共用します。
+ */
+export function specialMoveMeta(move: SpecialMove): string {
+  return `${specialTypeLabel(move)}/威力${move.power}/MP${move.mpCost}`;
+}
+
 /** キャラクターカード(画像・二つ名・ステータス・必殺技・パッシブ)を描画します。 */
 export function characterCard(data: CardData): HTMLElement {
   const card = el("article", { className: "card" }, [
@@ -70,7 +78,7 @@ export function characterCard(data: CardData): HTMLElement {
       }),
       el("span", {
         className: "card-special-meta",
-        text: `${specialTypeLabel(data.specialMove)}/威力${data.specialMove.power}/MP${data.specialMove.mpCost}`,
+        text: specialMoveMeta(data.specialMove),
       }),
       el("span", {
         className: "card-special-desc",

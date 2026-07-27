@@ -52,6 +52,7 @@ import {
 } from "../ai/prompts";
 import { sampleStoryIngredients } from "../ai/story";
 import { describeEvent } from "./format";
+import { fighterInfoPanel } from "./fighter-info";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
 import {
@@ -683,7 +684,7 @@ function logKindFor(event: BattleEvent): "system" | "special" {
   }
 }
 
-/** ファイター表示ブロック(画像・名前・HP/MPバー・状態異常バッジ)です。 */
+/** ファイター表示ブロック(画像・名前・HP/MPバー・情報パネル・状態異常バッジ)です。 */
 interface FighterBlock {
   root: HTMLElement;
   /** HP・MP・状態異常の表示を戦闘状態のスナップショットに同期します。 */
@@ -722,6 +723,9 @@ function fighterBlock(character: Character, side: "p1" | "p2"): FighterBlock {
     hpText,
     el("div", { className: "mp-bar" }, [mpFill]),
     mpText,
+    // 観戦者向けの手の内表示です。状態異常バッジより前に置くことで、
+    // バトル中にバッジが出現してもパネルの位置がずれないようにします
+    fighterInfoPanel(character),
     ailmentBadge,
   ]);
 

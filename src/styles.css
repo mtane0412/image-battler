@@ -791,6 +791,92 @@ img {
   margin-top: 3px;
 }
 
+/* 観戦者向けのファイター情報パネル(必殺技・特性・パラメータ) */
+.fighter-info {
+  width: 100%;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* 必殺技・特性の行はカード表示(.card-special / .card-passive)の配色を踏襲します */
+.fighter-special,
+.fighter-passive {
+  border-radius: 6px;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fighter-special {
+  border: 1px solid rgba(255, 210, 74, 0.4);
+  background: rgba(255, 210, 74, 0.07);
+}
+
+.fighter-passive {
+  border: 1px solid rgba(87, 185, 255, 0.4);
+  background: rgba(87, 185, 255, 0.07);
+}
+
+.fighter-info-label {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.fighter-special .fighter-info-label {
+  color: #1c1400;
+  background: var(--gold);
+}
+
+.fighter-passive .fighter-info-label {
+  color: #06101c;
+  background: var(--p1);
+}
+
+.fighter-special-name {
+  font-family: var(--font-dot);
+  font-size: 12px;
+  color: #ffe9a8;
+}
+
+.fighter-passive-name {
+  font-family: var(--font-dot);
+  font-size: 12px;
+  color: #bfe3ff;
+}
+
+.fighter-special-meta,
+.fighter-passive-desc {
+  font-size: 10px;
+  color: var(--muted);
+  width: 100%;
+}
+
+/* パラメータ(こうげき・ぼうぎょ・すばやさ・うん)の2列表示 */
+.fighter-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  padding: 0 2px;
+}
+
+.fighter-stat {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-dot);
+  font-size: 11px;
+}
+
+.fighter-stat-label {
+  color: var(--muted);
+}
+
 /* 状態異常バッジ(罹患中のみ表示) */
 .ailment-badge {
   font-family: var(--font-dot);
@@ -1139,6 +1225,16 @@ img {
 
   .fighter-name {
     font-size: 15px;
+  }
+
+  /* 幅が狭いときは情報パネルの文字を一段小さくして収めます */
+  .fighter-special-name,
+  .fighter-passive-name {
+    font-size: 11px;
+  }
+
+  .fighter-stat {
+    font-size: 10px;
   }
 
   .msg-window {
