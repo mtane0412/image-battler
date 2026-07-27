@@ -26,10 +26,20 @@ export function initApp(root: HTMLElement): void {
 
   const header = el("header", { className: "app-header" }, [
     logoButton,
-    el("span", { className: "app-tagline", text: "GEMINI NANO ARENA" }),
+    el("span", { className: "app-tagline", text: "IMAGE BATTLE ARENA" }),
   ]);
 
-  root.replaceChildren(header, main);
+  // プライバシーと使用モデルの説明です(どの画面でも常に確認できるようフッターに置きます)
+  const footer = el("footer", { className: "app-footer" }, [
+    el("p", {
+      text: "🔒 画像がサーバーにアップロードされることはありません。画像の解析・キャラクター生成・バトルは、すべてブラウザの中だけで完結します。",
+    }),
+    el("p", {
+      text: "キャラクター生成には Chrome 内蔵のローカルAI「Gemini Nano」を使用します(初回のみ数GBのモデルを端末にダウンロードします)。",
+    }),
+  ]);
+
+  root.replaceChildren(header, main, footer);
 
   function render(screen: Screen): void {
     switch (screen.name) {
