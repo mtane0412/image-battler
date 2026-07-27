@@ -8,6 +8,7 @@
 import type { Character, GeneratedStats } from "../types";
 import {
   GeminiNanoUnavailableError,
+  checkNanoAvailability,
   createCharacterGenerationSession,
   generateCharacterStats,
 } from "../ai/nano";
@@ -36,6 +37,11 @@ export function renderCreate(ctx: AppContext): HTMLElement {
       backButton(),
     ]),
   );
+
+  // モデル未ダウンロード時は、生成ボタンでダウンロードが始まることを事前に案内します
+  const noticeArea = el("div");
+  screen.append(noticeArea);
+  void showDownloadNotice(noticeArea);
 
   // --- 入力フォーム ---
   const fileInput = el("input", {
@@ -157,10 +163,12 @@ export function renderCreate(ctx: AppContext): HTMLElement {
     try {
       statusArea.textContent = "Gemini Nano を準備しています…";
       const session = await createCharacterGenerationSession((ratio) => {
-        statusArea.textContent = `モデルをダウンロード中… ${Math.round(ratio * 100)}%(初回のみ)`;
+        statusArea.textContent = `AIモデルをダウンロード中… ${Math.round(ratio * 100)}%(初回のみ)`;
       });
+      // モデルの準備が完了したので、初回ダウンロードの案内を消します
+      noticeArea.replaceChildren();
       try {
-        statusArea.textContent = "AIが画像を観察してステータスを考えています…";
+        statusArea.textContent = "AIが画像から戦闘力を算出しています…";
         generated = await generateCharacterStats(session, name, selectedFile);
       } finally {
         session.destroy();
@@ -254,6 +262,24 @@ export function renderCreate(ctx: AppContext): HTMLElement {
 
   function clearError(): void {
     errorArea.replaceChildren();
+  }
+
+  /**
+   * Gemini Nano のモデルが未ダウンロードの場合に、生成ボタンで
+   * 初回ダウンロードが始まることを事前に案内します。
+   */
+  async function showDownloadNotice(area: HTMLElement): Promise<void> {
+    const availability = await checkNanoAvailability();
+    if (availability !== "downloadable" && availability !== "downloading") {
+      return;
+    }
+    area.replaceChildren(
+      el("div", { className: "notice" }, [
+        el("p", {
+          text: "初回はAIモデル(Gemini Nano・数GB)のダウンロードが必要です。「ファイターを生成する」を押すと自動でダウンロードが始まります(Wi-Fi推奨)。",
+        }),
+      ]),
+    );
   }
 
   /** ホームに戻るボタンです。 */
