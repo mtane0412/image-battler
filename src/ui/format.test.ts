@@ -148,6 +148,20 @@ describe("describeEvent", () => {
     expect(text).toContain("たえた");
   });
 
+  it("life-stealの吸収は「すいとった」と回復量を含む", () => {
+    const text = describeEvent(makeEvent({ type: "life-steal", healed: 10 }), names);
+    expect(text).toContain("もふ吉");
+    expect(text).toContain("すいとった");
+    expect(text).toContain("10");
+  });
+
+  it("regenerateの回復は「かいふく」と回復量を含む", () => {
+    const text = describeEvent(makeEvent({ type: "regenerate", healed: 6 }), names);
+    expect(text).toContain("もふ吉");
+    expect(text).toContain("かいふく");
+    expect(text).toContain("6");
+  });
+
   it("対応表にないIDのイベントはエラーになる(Fail-Fast)", () => {
     const event = makeEvent({ type: "miss" });
     expect(() => describeEvent(event, { a: "もふ吉" })).toThrow(/がみつかりません/);

@@ -155,6 +155,10 @@ export function seKeyForEvent(
     case "ailment-skip":
     case "ailment-cure":
     case "endure":
+    case "life-steal":
+    case "regenerate":
+      // 経過イベント(life-steal / regenerate 含む)は毎ターン発生しうるため
+      // 効果音を鳴らさない(必殺技音の特別感を保つ)
       return null;
   }
 }
