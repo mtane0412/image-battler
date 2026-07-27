@@ -4,8 +4,11 @@
  *
  * Fail-Fast 方針: モデル出力が範囲外・欠落・型不一致の場合は補正せずに
  * CharacterParseError を投げます。呼び出し側(UI)が再生成を促します。
+ * 例外として、異常タイプ以外の必殺技の ailment フィールドは使用しない値のため
+ * null に正規化します(補正ではなく無関係フィールドの破棄です)。
  */
-import type { GeneratedStats } from "../types";
+import type { AilmentType, GeneratedStats, PassiveSkill } from "../types";
+import { AILMENT_TYPES, PASSIVE_SKILL_IDS, SPECIAL_MOVE_TYPES } from "../types";
 
 /** モデル出力の検証に失敗したときに投げるエラーです。 */
 export class CharacterParseError extends Error {
@@ -15,11 +18,36 @@ export class CharacterParseError extends Error {
 /** 各ステータスの許容範囲です。JSON Schema と検証の双方で使用します。 */
 export const STAT_RANGES = {
   hp: { min: 50, max: 150 },
+  mp: { min: 30, max: 100 },
   attack: { min: 20, max: 60 },
   defense: { min: 10, max: 50 },
   speed: { min: 10, max: 100 },
   luck: { min: 0, max: 100 },
   specialPower: { min: 30, max: 80 },
+  specialMpCost: { min: 15, max: 50 },
+} as const;
+
+/**
+ * 必殺技の ailment フィールドに指定できる値です。
+ * 異常タイプ以外の技では "none" を指定させます。
+ */
+const AILMENT_CHOICES = ["none", ...AILMENT_TYPES] as const;
+
+/**
+ * 自由記述フィールドの最大文字数です(JSON Schema の maxLength に使用)。
+ *
+ * Gemini Nano は小型モデルのため、説明文が長く暴走すると出力トークン上限で
+ * JSONが途中で切れてパース失敗になります。制約側で長さを抑えて予防します。
+ * パース時の検証には使いません(長さはゲーム性に影響しない表示上の制約のため、
+ * 万一超過してもエラーにはしません)。
+ */
+export const TEXT_LIMITS = {
+  /** 二つ名・技名・パッシブ名 */
+  name: 20,
+  /** キャラクターの紹介文 */
+  characterDescription: 80,
+  /** 技・パッシブの説明文 */
+  effectDescription: 60,
 } as const;
 
 /**
@@ -30,6 +58,7 @@ export const CHARACTER_GENERATION_SCHEMA = {
   type: "object",
   required: [
     "hp",
+    "mp",
     "attack",
     "defense",
     "speed",
@@ -37,28 +66,47 @@ export const CHARACTER_GENERATION_SCHEMA = {
     "title",
     "description",
     "specialMove",
+    "passive",
   ],
   additionalProperties: false,
   properties: {
     hp: { type: "integer", minimum: STAT_RANGES.hp.min, maximum: STAT_RANGES.hp.max },
+    mp: { type: "integer", minimum: STAT_RANGES.mp.min, maximum: STAT_RANGES.mp.max },
     attack: { type: "integer", minimum: STAT_RANGES.attack.min, maximum: STAT_RANGES.attack.max },
     defense: { type: "integer", minimum: STAT_RANGES.defense.min, maximum: STAT_RANGES.defense.max },
     speed: { type: "integer", minimum: STAT_RANGES.speed.min, maximum: STAT_RANGES.speed.max },
     luck: { type: "integer", minimum: STAT_RANGES.luck.min, maximum: STAT_RANGES.luck.max },
-    title: { type: "string" },
-    description: { type: "string" },
+    title: { type: "string", maxLength: TEXT_LIMITS.name },
+    description: { type: "string", maxLength: TEXT_LIMITS.characterDescription },
     specialMove: {
       type: "object",
-      required: ["name", "power", "description"],
+      required: ["name", "type", "power", "mpCost", "ailment", "description"],
       additionalProperties: false,
       properties: {
-        name: { type: "string" },
+        name: { type: "string", maxLength: TEXT_LIMITS.name },
+        type: { type: "string", enum: SPECIAL_MOVE_TYPES },
         power: {
           type: "integer",
           minimum: STAT_RANGES.specialPower.min,
           maximum: STAT_RANGES.specialPower.max,
         },
-        description: { type: "string" },
+        mpCost: {
+          type: "integer",
+          minimum: STAT_RANGES.specialMpCost.min,
+          maximum: STAT_RANGES.specialMpCost.max,
+        },
+        ailment: { type: "string", enum: AILMENT_CHOICES },
+        description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
+      },
+    },
+    passive: {
+      type: "object",
+      required: ["id", "name", "description"],
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", enum: PASSIVE_SKILL_IDS },
+        name: { type: "string", maxLength: TEXT_LIMITS.name },
+        description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
       },
     },
   },
@@ -73,9 +121,14 @@ export function parseGeneratedStats(raw: string): GeneratedStats {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new CharacterParseError(
-      `モデル出力をJSONとして解釈できませんでした: ${raw.slice(0, 100)}`,
-    );
+    try {
+      parsed = JSON.parse(repairQuoteQuirk(raw));
+    } catch {
+      // 診断のため、先頭と末尾の両方を含めます(末尾で壊れることが多いため)
+      throw new CharacterParseError(
+        `モデル出力をJSONとして解釈できませんでした(先頭: ${raw.slice(0, 60)} / 末尾: ${raw.slice(-60)})`,
+      );
+    }
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new CharacterParseError("モデル出力がオブジェクトではありません");
@@ -84,6 +137,7 @@ export function parseGeneratedStats(raw: string): GeneratedStats {
 
   const stats = {
     hp: readInt(obj, "hp", STAT_RANGES.hp),
+    mp: readInt(obj, "mp", STAT_RANGES.mp),
     attack: readInt(obj, "attack", STAT_RANGES.attack),
     defense: readInt(obj, "defense", STAT_RANGES.defense),
     speed: readInt(obj, "speed", STAT_RANGES.speed),
@@ -91,8 +145,22 @@ export function parseGeneratedStats(raw: string): GeneratedStats {
     title: readText(obj, "title"),
     description: readText(obj, "description"),
     specialMove: readSpecialMove(obj),
+    passive: readPassive(obj),
   } satisfies GeneratedStats;
   return stats;
+}
+
+/**
+ * Gemini Nano の既知の癖を修復します。
+ *
+ * 実機で確認した決定論的な癖: 日本語の文字列値の閉じ引用符を「"」ではなく
+ * 「'」と出力することがあり(例: `"description": "…する。'}}`)、
+ * responseConstraint でも防げません。JSON.parse が失敗した場合に限り、
+ * 「'」+ 区切り記号(} , ])を「"」+ 区切り記号へ置き換えて再パースを試みます。
+ * 修復後もパースできない場合は呼び出し側で CharacterParseError になります。
+ */
+function repairQuoteQuirk(raw: string): string {
+  return raw.replace(/'(\s*[}\],])/g, '"$1');
 }
 
 /** 指定キーの整数値を検証付きで読み取ります。 */
@@ -122,16 +190,67 @@ function readText(obj: Record<string, unknown>, key: string): string {
   return value.trim();
 }
 
+/** 指定キーの値が許可リストに含まれる文字列であることを検証して読み取ります。 */
+function readChoice<T extends string>(
+  obj: Record<string, unknown>,
+  key: string,
+  choices: readonly T[],
+): T {
+  const value = obj[key];
+  if (typeof value !== "string" || !(choices as readonly string[]).includes(value)) {
+    throw new CharacterParseError(
+      `${key} が不正な値です(許可: ${choices.join(", ")}): ${String(value)}`,
+    );
+  }
+  return value as T;
+}
+
+/** 指定キーのオブジェクト値を検証付きで読み取ります。 */
+function readObject(
+  obj: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const value = obj[key];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new CharacterParseError(`${key} がオブジェクトではありません`);
+  }
+  return value as Record<string, unknown>;
+}
+
 /** specialMove オブジェクトを検証付きで読み取ります。 */
 function readSpecialMove(obj: Record<string, unknown>): GeneratedStats["specialMove"] {
-  const value = obj["specialMove"];
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new CharacterParseError("specialMove がオブジェクトではありません");
+  const move = readObject(obj, "specialMove");
+  const type = readChoice(move, "type", SPECIAL_MOVE_TYPES);
+  const ailmentChoice = readChoice(move, "ailment", AILMENT_CHOICES);
+
+  // 異常タイプの技には必ず具体的な状態異常が必要です(Fail-Fast)。
+  // それ以外のタイプでは ailment を使用しないため null に正規化します
+  let ailment: AilmentType | null = null;
+  if (type === "ailment") {
+    if (ailmentChoice === "none") {
+      throw new CharacterParseError(
+        "異常タイプの必殺技に ailment(poison/paralysis/burn/freeze)が指定されていません",
+      );
+    }
+    ailment = ailmentChoice;
   }
-  const move = value as Record<string, unknown>;
+
   return {
     name: readText(move, "name"),
+    type,
     power: readInt(move, "power", STAT_RANGES.specialPower),
+    mpCost: readInt(move, "mpCost", STAT_RANGES.specialMpCost),
+    ailment,
     description: readText(move, "description"),
+  };
+}
+
+/** passive オブジェクトを検証付きで読み取ります。 */
+function readPassive(obj: Record<string, unknown>): PassiveSkill {
+  const passive = readObject(obj, "passive");
+  return {
+    id: readChoice(passive, "id", PASSIVE_SKILL_IDS),
+    name: readText(passive, "name"),
+    description: readText(passive, "description"),
   };
 }

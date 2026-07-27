@@ -11,7 +11,7 @@
  *   実況AIと同じく演出の失敗でバトルを止めない設計です。警告ログで明示します)
  */
 import seManifest from "./se-manifest.json";
-import type { BattleEvent, SpecialMove } from "../types";
+import type { AilmentType, BattleEvent, SpecialMove } from "../types";
 
 /** 効果音のキー(se-manifest.json のキーと一致します)。 */
 export type SeKey = keyof typeof seManifest;
@@ -114,22 +114,48 @@ function fnv1aHash(text: string): number {
   return hash >>> 0;
 }
 
+/** 状態異常ごとの効果音キーです(異常必殺技の演出に使用します)。 */
+const AILMENT_SE_KEYS = {
+  poison: "special-dark",
+  paralysis: "special-thunder",
+  burn: "special-flame",
+  freeze: "special-ice",
+} as const satisfies Record<AilmentType, SeKey>;
+
 /**
  * バトルイベントを効果音キーに変換します。
- * @param specialSeKey 攻撃側の必殺技に割り当てた固有効果音キー
+ * 効果音を鳴らさないイベント(スリップダメージ・行動不能・解除・endure)では
+ * null を返します(該当する素材がないため、ログと視覚演出のみで伝えます)。
+ * @param specialSeKey 行動側の必殺技に割り当てた固有効果音キー
  */
-export function seKeyForEvent(event: BattleEvent, specialSeKey: SeKey): SeKey {
+export function seKeyForEvent(
+  event: BattleEvent,
+  specialSeKey: SeKey,
+): SeKey | null {
   switch (event.type) {
     case "miss":
       return "miss";
-    case "special":
+    case "special-attack":
+    case "special-buff":
       return specialSeKey;
+    case "special-heal":
+      return "special-holy";
+    case "special-ailment":
+      return AILMENT_SE_KEYS[event.ailment];
+    case "counter":
+      // 反撃は重い一撃の音で強調します
+      return "critical";
     case "attack":
       if (event.critical) {
         return "critical";
       }
       // 単調にならないよう、ターンの奇偶で2種類の打撃音を使い分けます
       return event.turn % 2 === 1 ? "attack1" : "attack2";
+    case "ailment-damage":
+    case "ailment-skip":
+    case "ailment-cure":
+    case "endure":
+      return null;
   }
 }
 
