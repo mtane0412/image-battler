@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# Vercel CLI のプロジェクトリンク情報とローカル環境変数(vercel link で生成される)
+.vercel/
+.env*
 # 効果音ラボの素材(再配布禁止のためコミットしない。npm run fetch:se で取得)
 public/se/
 *.log

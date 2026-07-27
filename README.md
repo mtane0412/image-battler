@@ -80,8 +80,23 @@ npm run build       # 本番ビルド(dist/ に静的ファイルを出力)
 
 ## デプロイ
 
+### Vercel
+
+リポジトリ直下の `vercel.json` にビルド設定を定義しています。効果音素材が git 管理外のため、ビルドコマンドは `npm run fetch:se && npm run build` になっており、Vercel のビルド時に効果音を取得してから `dist/` に同梱します。
+
+```bash
+vercel login          # 初回のみ: ブラウザでログイン
+vercel link           # 初回のみ: Vercel プロジェクトとリンク
+vercel deploy         # プレビューデプロイ
+vercel deploy --prod  # 本番デプロイ
+```
+
+GitHub リポジトリを Vercel プロジェクトに接続すると、push のたびに自動デプロイされます(ビルド設定は `vercel.json` が適用されます)。
+
+### その他の静的ホスティング
+
 ```bash
 npm run fetch:se    # 効果音素材を取得(未取得の場合)
 npm run build
-# dist/ を GitHub Pages / Vercel / Cloudflare Pages などにアップロード
+# dist/ を GitHub Pages / Cloudflare Pages などにアップロード
 ```
