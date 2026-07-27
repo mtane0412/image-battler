@@ -144,14 +144,7 @@ export function parseGeneratedStats(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    try {
-      parsed = JSON.parse(repairQuoteQuirk(raw));
-    } catch {
-      // 診断のため、先頭と末尾の両方を含めます(末尾で壊れることが多いため)
-      throw new CharacterParseError(
-        `モデル出力をJSONとして解釈できませんでした(先頭: ${raw.slice(0, 60)} / 末尾: ${raw.slice(-60)})`,
-      );
-    }
+    parsed = parseWithQuirkRepairs(raw);
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new CharacterParseError("モデル出力がオブジェクトではありません");
@@ -174,16 +167,76 @@ export function parseGeneratedStats(
 }
 
 /**
- * Gemini Nano の既知の癖を修復します。
+ * Gemini Nano の既知の癖を修復した候補を順にパースし、最初に解釈できた値を
+ * 返します。どの候補でも解釈できない場合は CharacterParseError を投げます。
  *
- * 実機で確認した決定論的な癖: 日本語の文字列値の閉じ引用符を「"」ではなく
- * 「'」と出力することがあり(例: `"description": "…する。'}}`)、
- * responseConstraint でも防げません。JSON.parse が失敗した場合に限り、
- * 「'」+ 区切り記号(} , ])を「"」+ 区切り記号へ置き換えて再パースを試みます。
- * 修復後もパースできない場合は呼び出し側で CharacterParseError になります。
+ * 実機で確認した決定論的な癖(いずれも responseConstraint では防げません):
+ * 1. 日本語の文字列値の閉じ引用符を「'」と出力する(例: `…する。'}}`)
+ * 2. 末尾の文字列値の閉じ引用符を丸ごと省略する(例: `…回避する。}}`)
+ * 3. 完結したJSONの後ろにゴミを出力する(例: `…}}` の後に「{」+改行)
+ *
+ * 癖は同時に発生しうるため、単独・組み合わせの修復候補をすべて試します。
+ * JSONとして成立しない候補は採用されないため、構文を壊す誤修復は
+ * 排除されます(構文的に成立した最初の候補を決定論的に採用します)。
+ */
+function parseWithQuirkRepairs(raw: string): unknown {
+  const trimmed = trimTrailingGarbage(raw);
+  const quoteClosed = repairMissingClosingQuote(trimmed);
+  const candidates = [
+    repairQuoteQuirk(raw),
+    trimmed,
+    repairQuoteQuirk(trimmed),
+    quoteClosed,
+    repairQuoteQuirk(quoteClosed),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // この候補では修復できなかったため、次の候補を試します
+    }
+  }
+  // 診断のため、先頭と末尾の両方を含めます(末尾で壊れることが多いため)
+  throw new CharacterParseError(
+    `モデル出力をJSONとして解釈できませんでした(先頭: ${raw.slice(0, 60)} / 末尾: ${raw.slice(-60)})`,
+  );
+}
+
+/**
+ * 癖1の修復: 閉じ引用符「'」+ 区切り記号(} , ])を「"」+ 区切り記号へ
+ * 置き換えます。
  */
 function repairQuoteQuirk(raw: string): string {
   return raw.replace(/'(\s*[}\],])/g, '"$1');
+}
+
+/**
+ * 癖2の修復: 末尾の閉じ括弧の直前に閉じ引用符「"」を補います
+ * (Vercel本番の実機例: `"description": "相手の攻撃を軽々と回避する。}}`)。
+ *
+ * 直前の文字が引用符・閉じ括弧・JSON構文空白の場合は補いません。
+ * 数値で終わる正常な構造(例: `"mpCost": 30}}`)に補った候補は
+ * JSONとして不正のままなので採用されず、数値を壊すことはありません。
+ * 空白はJSONの構文空白(space/tab/CR/LF)だけを対象にします。全角空白などの
+ * Unicode空白は文字列内容の一部として残して修復し、パース後の trim で
+ * 除去されます。
+ */
+function repairMissingClosingQuote(raw: string): string {
+  return raw.replace(/([^" \t\r\n}\]])((?:[ \t\r\n]*[}\]])+)$/, '$1"$2');
+}
+
+/**
+ * 癖3の修復: JSON本体の後ろに続くゴミを取り除きます
+ * (Vercel本番の実機例: `…}}` の後に「{」+改行が続く)。
+ * このスキーマの正しい出力は必ず「}」で終わるため、最後の「}」より後ろは
+ * すべて不要とみなして切り捨てます。「}」が無い場合は修復せずそのまま返します。
+ *
+ * 制限: ゴミ側に「}」が含まれるまで出力が進んだ場合(未観測)は切り捨て位置を
+ * 誤り、修復できずに CharacterParseError となります(Fail-Fast)。
+ */
+function trimTrailingGarbage(raw: string): string {
+  const lastBrace = raw.lastIndexOf("}");
+  return lastBrace === -1 ? raw : raw.slice(0, lastBrace + 1);
 }
 
 /** 指定キーの整数値を検証付きで読み取ります。 */
