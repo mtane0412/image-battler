@@ -72,6 +72,10 @@ export function characterCard(data: CardData): HTMLElement {
         className: "card-special-meta",
         text: `${specialTypeLabel(data.specialMove)}/威力${data.specialMove.power}/MP${data.specialMove.mpCost}`,
       }),
+      el("span", {
+        className: "card-special-desc",
+        text: data.specialMove.description,
+      }),
     ]),
   ]);
 
