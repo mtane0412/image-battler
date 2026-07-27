@@ -2,10 +2,14 @@
  * @file バトル画面です。バトルの展開は battle/engine.ts が決定論的に計算し、
  * この画面はその結果を順番に再生します。実況セリフは Gemini Nano が生成します。
  *
- * フォールバック方針(明示): 実況(演出)の生成に失敗してもバトル本体は
+ * フォールバック方針(明示): 実況・前口上(演出)の生成に失敗してもバトル本体は
  * JavaScript側の計算で完結しているため、失敗をログに明示した上で
  * メカニカルなログのみで進行を続けます。キャラクター生成と異なり、
  * 実況失敗でゲーム全体を停止しない設計です(README参照)。
+ *
+ * 前口上(ストーリー): バトル開始前に、コード側で抽選した舞台・因縁
+ * (ai/story.ts)とキャラクター設定から短いストーリーを生成して表示します。
+ * モデルは決定論的なため、抽選材料が毎試合違うストーリーを担保します。
  *
  * 実況の対象: 行動イベント(通常攻撃・ミス・必殺技・反撃)のみ実況します。
  * 毎ターン発生しうる状態異常の経過(スリップダメージ・行動不能など)や
@@ -20,13 +24,19 @@ import type {
 } from "../types";
 import { AILMENT_LABELS } from "../types";
 import { simulateBattle } from "../battle/engine";
-import { createNarrationSession, narrateOnce } from "../ai/nano";
+import {
+  createNarrationSession,
+  generateBattleStory,
+  narrateOnce,
+} from "../ai/nano";
 import {
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
+  buildStoryPrompt,
   type NarrationParams,
 } from "../ai/prompts";
+import { sampleStoryIngredients } from "../ai/story";
 import { describeEvent } from "./format";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
@@ -116,6 +126,11 @@ export function renderBattle(
   /** バトル全体を再生します。 */
   async function playBattle(): Promise<void> {
     const result = simulateBattle(first, second, Math.random);
+    // 前口上(ストーリー)の生成は待ち時間を稼ぐため最初に開始し、
+    // 実況セッションの準備と並行させます。材料の抽選が毎試合の変化の源です
+    const storyPromise = generateBattleStory(
+      buildStoryPrompt(first, second, sampleStoryIngredients()),
+    );
     // 必殺技の固有効果音はキャラクターごとに一度だけ決定します
     const byId: Record<string, BattleParticipant> = {
       [first.id]: {
@@ -148,6 +163,22 @@ export function renderBattle(
 
     // 実況セッションの準備待ちの間に画面を離れた場合はここで打ち切ります
     // (離脱後にゴングが鳴る・セッションがリークするのを防ぎます)
+    if (aborted) {
+      narrator?.destroy();
+      // 離脱後にストーリー生成の失敗が未処理エラーにならないよう明示的に無視します
+      storyPromise.catch(() => undefined);
+      return;
+    }
+
+    // ゴングの前に前口上(ストーリー)を表示します(失敗は明示して続行します)
+    try {
+      await typeLine(await storyPromise, "story");
+    } catch (error) {
+      await typeLine(
+        `(ストーリーの生成に失敗したため、前口上なしで進行します: ${error instanceof Error ? error.message : String(error)})`,
+        "warn",
+      );
+    }
     if (aborted) {
       narrator?.destroy();
       return;
@@ -325,11 +356,16 @@ export function renderBattle(
    */
   async function typeLine(
     text: string,
-    kind: "system" | "narration" | "special" | "warn",
+    kind: "system" | "narration" | "special" | "warn" | "story",
   ): Promise<void> {
     const line = el("p", { className: `log-line log-${kind} typing` });
     if (kind === "narration") {
       line.append(el("span", { className: "log-mic", text: "実況" }));
+    }
+    if (kind === "story") {
+      line.append(
+        el("span", { className: "log-mic log-mic-story", text: "ストーリー" }),
+      );
     }
     const body = el("span");
     line.append(body);

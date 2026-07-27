@@ -8,6 +8,7 @@ import {
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
+  buildStoryPrompt,
 } from "./prompts";
 
 describe("buildCharacterPrompt", () => {
@@ -121,6 +122,43 @@ describe("buildNarrationPrompt", () => {
     });
     expect(prompt).toContain("鋼のかみつき返し");
     expect(prompt).toContain("12");
+  });
+});
+
+describe("buildStoryPrompt", () => {
+  /** テストで共用する両ファイターの情報です。 */
+  const mofukichi = {
+    name: "もふ吉",
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+  };
+  const gabuta = {
+    name: "がぶ太",
+    title: "鋼鉄の甘噛み犬",
+    description: "なんでも噛んでしまう犬の騎士です",
+  };
+  const ingredients = { stage: "満月の廃神殿", relation: "宿命のライバル" };
+
+  it("両者の名前・二つ名・紹介文が含まれる", () => {
+    const prompt = buildStoryPrompt(mofukichi, gabuta, ingredients);
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("深淵の眠り猫");
+    expect(prompt).toContain("よく寝る猫の戦士です");
+    expect(prompt).toContain("がぶ太");
+    expect(prompt).toContain("鋼鉄の甘噛み犬");
+    expect(prompt).toContain("なんでも噛んでしまう犬の騎士です");
+  });
+
+  it("抽選した舞台と因縁が含まれる", () => {
+    const prompt = buildStoryPrompt(mofukichi, gabuta, ingredients);
+    expect(prompt).toContain("満月の廃神殿");
+    expect(prompt).toContain("宿命のライバル");
+  });
+
+  it("勝敗のネタバレを禁止する指示が含まれる", () => {
+    // 前口上はバトル再生前に表示するため、結末を書かせない指示が必要
+    const prompt = buildStoryPrompt(mofukichi, gabuta, ingredients);
+    expect(prompt).toContain("勝敗");
   });
 });
 

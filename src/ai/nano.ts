@@ -11,6 +11,7 @@ import { samplePassiveCandidates } from "./passives";
 import {
   CHARACTER_SYSTEM_PROMPT,
   NARRATION_SYSTEM_PROMPT,
+  STORY_SYSTEM_PROMPT,
   buildCharacterPrompt,
 } from "./prompts";
 
@@ -112,6 +113,12 @@ export async function generateCharacterStats(
   return parseGeneratedStats(response, passiveCandidates);
 }
 
+/** テキストのみのセッション(実況・ストーリー)が期待する入出力の宣言です。 */
+const TEXT_SESSION_IO = {
+  expectedInputs: [{ type: "text", languages: ["ja"] }],
+  expectedOutputs: [{ type: "text", languages: ["ja"] }],
+} satisfies Pick<LanguageModelCreateOptions, "expectedInputs" | "expectedOutputs">;
+
 /**
  * 実況用のベースセッション(テキストのみ)を作成します。
  * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
@@ -119,10 +126,29 @@ export async function generateCharacterStats(
 export async function createNarrationSession(): Promise<LanguageModelSession> {
   const api = requireLanguageModel();
   return api.create({
-    expectedInputs: [{ type: "text", languages: ["ja"] }],
-    expectedOutputs: [{ type: "text", languages: ["ja"] }],
+    ...TEXT_SESSION_IO,
     initialPrompts: [{ role: "system", content: NARRATION_SYSTEM_PROMPT }],
   });
+}
+
+/**
+ * バトル前口上(ストーリー)を1回だけ生成します。
+ * 1バトルにつき1度しか使わないため、専用セッションを作成して使い捨てます。
+ * @param prompt buildStoryPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateBattleStory(prompt: string): Promise<string> {
+  const api = requireLanguageModel();
+  const session = await api.create({
+    ...TEXT_SESSION_IO,
+    initialPrompts: [{ role: "system", content: STORY_SYSTEM_PROMPT }],
+  });
+  try {
+    const response = await session.prompt(prompt);
+    return response.trim();
+  } finally {
+    session.destroy();
+  }
 }
 
 /**

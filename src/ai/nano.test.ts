@@ -8,6 +8,7 @@ import {
   GeminiNanoUnavailableError,
   checkNanoAvailability,
   createCharacterGenerationSession,
+  generateBattleStory,
   generateCharacterStats,
   narrateOnce,
 } from "./nano";
@@ -143,6 +144,42 @@ describe("generateCharacterStats", () => {
     await expect(
       generateCharacterStats(session, "もふ吉", image, sequenceRng([0.99, 0.99, 0.99])),
     ).rejects.toThrow(/id/);
+  });
+});
+
+describe("generateBattleStory", () => {
+  it("セッションを作成して前口上を生成し、セッションを破棄する", async () => {
+    const destroy = vi.fn();
+    const prompt = vi
+      .fn()
+      .mockResolvedValue("  満月の夜、二人の戦士が相まみえる。  \n");
+    const create = vi.fn().mockResolvedValue({ prompt, destroy });
+    vi.stubGlobal("LanguageModel", { availability: vi.fn(), create });
+
+    const story = await generateBattleStory("前口上を書いて");
+
+    expect(story).toBe("満月の夜、二人の戦士が相まみえる。");
+    expect(prompt).toHaveBeenCalledWith("前口上を書いて");
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it("生成に失敗してもセッションは破棄される", async () => {
+    const destroy = vi.fn();
+    const prompt = vi.fn().mockRejectedValue(new Error("生成失敗"));
+    const create = vi.fn().mockResolvedValue({ prompt, destroy });
+    vi.stubGlobal("LanguageModel", { availability: vi.fn(), create });
+
+    await expect(generateBattleStory("前口上を書いて")).rejects.toThrow(
+      "生成失敗",
+    );
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it("LanguageModelが存在しない場合はGeminiNanoUnavailableErrorを投げる", async () => {
+    vi.stubGlobal("LanguageModel", undefined);
+    await expect(generateBattleStory("前口上を書いて")).rejects.toThrow(
+      GeminiNanoUnavailableError,
+    );
   });
 });
 

@@ -6,6 +6,7 @@
 import type { AilmentType, PassiveSkillId } from "../types";
 import { AILMENT_LABELS, PASSIVE_SKILL_SUMMARIES } from "../types";
 import { STAT_RANGES } from "./schema";
+import type { StoryIngredients } from "./story";
 
 /** キャラクター生成セッションのシステムプロンプトです。 */
 export const CHARACTER_SYSTEM_PROMPT = [
@@ -50,6 +51,41 @@ export function buildCharacterPrompt(
     "- passive: パッシブスキル。見た目に一番合うidを選び、キャラ固有のかっこいい名前を付ける。",
     `  - id: ${passiveChoices}`,
     "  - name(固有名)、description(効果の紹介文。30文字以内)",
+  ].join("\n");
+}
+
+/** ストーリー(前口上)生成セッションのシステムプロンプトです。 */
+export const STORY_SYSTEM_PROMPT = [
+  "あなたは対戦ゲームのオープニングを語るナレーターです。",
+  "与えられた二人のファイターの設定と舞台から、これから始まるバトルの",
+  "前口上を日本語で2〜3文で語ってください。",
+  "前口上の本文のみを出力し、前置きや引用符は不要です。",
+].join("");
+
+/** ストーリー(前口上)生成に渡すファイター情報です。 */
+export interface StoryFighter {
+  name: string;
+  title: string;
+  description: string;
+}
+
+/**
+ * バトル前口上用のプロンプトを組み立てます。
+ * 舞台と因縁(ingredients)はコード側で抽選した材料です(ai/story.ts)。
+ * 前口上はバトル再生前に表示するため、勝敗のネタバレを明示的に禁止します。
+ */
+export function buildStoryPrompt(
+  first: StoryFighter,
+  second: StoryFighter,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    "これから始まるバトルの前口上を2〜3文で書いてください。",
+    `舞台: ${ingredients.stage}`,
+    `二人の関係: ${ingredients.relation}`,
+    `青コーナー:「${first.title}」こと ${first.name}。${first.description}`,
+    `赤コーナー:「${second.title}」こと ${second.name}。${second.description}`,
+    "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
   ].join("\n");
 }
 

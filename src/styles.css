@@ -824,6 +824,10 @@ img {
   font-size: 13px;
 }
 
+.log-story {
+  color: #bcd0ff;
+}
+
 .log-mic {
   font-family: var(--font-body);
   font-size: 10px;
@@ -834,6 +838,11 @@ img {
   border-radius: 3px;
   margin-right: 8px;
   vertical-align: 2px;
+}
+
+.log-mic-story {
+  color: #0a1030;
+  background: #bcd0ff;
 }
 
 .typing::after {
