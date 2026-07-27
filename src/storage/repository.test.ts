@@ -44,9 +44,70 @@ describe("deleteCharacter", () => {
   });
 });
 
+describe("旧形式データの自動移行", () => {
+  /**
+   * MP・必殺技タイプ・パッシブ導入前(v0.1.0)に保存されたキャラクターです。
+   * mp / specialMove.type / specialMove.mpCost / specialMove.ailment / passive
+   * を持ちません。
+   */
+  const 旧形式キャラ = {
+    id: "id-旧もふ吉",
+    name: "旧もふ吉",
+    hp: 100,
+    attack: 40,
+    defense: 20,
+    speed: 50,
+    luck: 30,
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+    specialMove: {
+      name: "爪とぎクラッシュ",
+      power: 60,
+      description: "鋭い爪で連続攻撃を繰り出す",
+    },
+    imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
+    createdAt: "2026-07-01T00:00:00.000Z",
+  };
+
+  it("旧形式キャラクターには新フィールドのデフォルト値が補完される", () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([旧形式キャラ]));
+    const [migrated] = loadCharacters();
+    // 既存のフィールドはそのまま保持される
+    expect(migrated?.name).toBe("旧もふ吉");
+    expect(migrated?.specialMove.name).toBe("爪とぎクラッシュ");
+    expect(migrated?.specialMove.power).toBe(60);
+    // 新フィールドがデフォルト値で補完される
+    expect(migrated?.mp).toBe(50);
+    expect(migrated?.specialMove.type).toBe("attack");
+    expect(migrated?.specialMove.mpCost).toBe(30);
+    expect(migrated?.specialMove.ailment).toBeNull();
+    expect(migrated?.passive).toBeNull();
+  });
+
+  it("新形式キャラクターは変更されずそのまま読み出せる", () => {
+    const character = makeCharacter({
+      id: "id-新がぶ太",
+      name: "新がぶ太",
+      mp: 80,
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([character]));
+    expect(loadCharacters()).toEqual([character]);
+  });
+});
+
 describe("異常系(Fail-Fast)", () => {
   it("壊れたJSONが保存されている場合はStorageErrorを投げる", () => {
     localStorage.setItem(STORAGE_KEY, "{壊れたデータ");
+    expect(() => loadCharacters()).toThrow(StorageError);
+  });
+
+  it("配列要素がキャラクターの形をしていない場合はStorageErrorを投げる", () => {
+    // specialMove を持たない要素は移行処理でTypeErrorになるため、
+    // StorageError に変換してUI側で通知できるようにする
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(["文字列の不正データ", { name: "specialMoveなし" }]),
+    );
     expect(() => loadCharacters()).toThrow(StorageError);
   });
 

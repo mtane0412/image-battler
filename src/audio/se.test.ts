@@ -20,28 +20,21 @@ import {
   seUrl,
 } from "./se";
 import seManifest from "./se-manifest.json";
-import type { BattleEvent, SpecialMove } from "../types";
+import { makeSpecialMove } from "../testing/fixtures";
+import type { BattleEvent, BattleEventPayload, CombatantSnapshot } from "../types";
 
-/** テスト用の必殺技を生成します。 */
-function makeSpecialMove(overrides: Partial<SpecialMove> = {}): SpecialMove {
-  return {
-    name: "爪とぎクラッシュ",
-    power: 60,
-    description: "するどい爪で敵を切り裂く",
-    ...overrides,
-  };
-}
-
-/** テスト用のバトルイベントを1件生成します。 */
-function makeEvent(overrides: Partial<BattleEvent> = {}): BattleEvent {
+/** テスト用のバトルイベントを1件生成します(共通フィールドは既定値で埋めます)。 */
+function makeEvent(
+  payload: BattleEventPayload,
+  overrides: Partial<Pick<BattleEvent, "turn">> = {},
+): BattleEvent {
+  const snapshot: CombatantSnapshot = { hp: 68, mp: 30, ailment: null };
   return {
     turn: 1,
-    attackerId: "char-もふ吉",
-    defenderId: "char-がぶ太",
-    type: "attack",
-    critical: false,
-    damage: 32,
-    defenderHpAfter: 68,
+    actorId: "char-もふ吉",
+    targetId: "char-がぶ太",
+    after: { "char-もふ吉": { ...snapshot }, "char-がぶ太": { ...snapshot } },
+    ...payload,
     ...overrides,
   };
 }
@@ -102,24 +95,91 @@ describe("selectSpecialSeKey", () => {
 });
 
 describe("seKeyForEvent", () => {
+  /** 通常攻撃イベントのペイロードです。 */
+  const attackPayload: BattleEventPayload = {
+    type: "attack",
+    critical: false,
+    damage: 32,
+  };
+
   it("ミスは空振りの効果音になる", () => {
-    const key = seKeyForEvent(makeEvent({ type: "miss", damage: 0 }), "special-impact");
+    const key = seKeyForEvent(makeEvent({ type: "miss" }), "special-impact");
     expect(key).toBe("miss");
   });
 
-  it("必殺技は渡された固有効果音になる", () => {
-    const key = seKeyForEvent(makeEvent({ type: "special" }), "special-flame");
+  it("攻撃必殺技は渡された固有効果音になる", () => {
+    const key = seKeyForEvent(
+      makeEvent({ type: "special-attack", moveName: "爪とぎクラッシュ", damage: 66 }),
+      "special-flame",
+    );
     expect(key).toBe("special-flame");
   });
 
+  it("強化必殺技も渡された固有効果音になる", () => {
+    const key = seKeyForEvent(
+      makeEvent({
+        type: "special-buff",
+        moveName: "たけりのポーズ",
+        attackGain: 20,
+        defenseGain: 15,
+      }),
+      "special-beast",
+    );
+    expect(key).toBe("special-beast");
+  });
+
+  it("回復必殺技は聖属性の効果音になる", () => {
+    const key = seKeyForEvent(
+      makeEvent({ type: "special-heal", moveName: "いやしの光", healed: 50 }),
+      "special-impact",
+    );
+    expect(key).toBe("special-holy");
+  });
+
+  it("異常必殺技は状態異常の属性に合った効果音になる", () => {
+    const cases = [
+      { ailment: "poison", expected: "special-dark" },
+      { ailment: "paralysis", expected: "special-thunder" },
+      { ailment: "burn", expected: "special-flame" },
+      { ailment: "freeze", expected: "special-ice" },
+    ] as const;
+    for (const { ailment, expected } of cases) {
+      const key = seKeyForEvent(
+        makeEvent({ type: "special-ailment", moveName: "じょうたい技", ailment, damage: 15 }),
+        "special-impact",
+      );
+      expect(key).toBe(expected);
+    }
+  });
+
+  it("反撃はクリティカルと同じ重い打撃音になる", () => {
+    const key = seKeyForEvent(makeEvent({ type: "counter", damage: 12 }), "special-impact");
+    expect(key).toBe("critical");
+  });
+
   it("クリティカルは専用の効果音になる", () => {
-    const key = seKeyForEvent(makeEvent({ critical: true }), "special-impact");
+    const key = seKeyForEvent(
+      makeEvent({ type: "attack", critical: true, damage: 48 }),
+      "special-impact",
+    );
     expect(key).toBe("critical");
   });
 
   it("通常攻撃はターンの奇偶で2種類の打撃音を使い分ける", () => {
-    expect(seKeyForEvent(makeEvent({ turn: 1 }), "special-impact")).toBe("attack1");
-    expect(seKeyForEvent(makeEvent({ turn: 2 }), "special-impact")).toBe("attack2");
+    expect(seKeyForEvent(makeEvent(attackPayload, { turn: 1 }), "special-impact")).toBe("attack1");
+    expect(seKeyForEvent(makeEvent(attackPayload, { turn: 2 }), "special-impact")).toBe("attack2");
+  });
+
+  it("スリップダメージ・行動不能・解除・endureは効果音なし(null)になる", () => {
+    const silentPayloads: BattleEventPayload[] = [
+      { type: "ailment-damage", ailment: "poison", damage: 13 },
+      { type: "ailment-skip", ailment: "paralysis" },
+      { type: "ailment-cure", ailment: "freeze" },
+      { type: "endure" },
+    ];
+    for (const payload of silentPayloads) {
+      expect(seKeyForEvent(makeEvent(payload), "special-impact")).toBeNull();
+    }
   });
 });
 

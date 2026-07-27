@@ -4,8 +4,17 @@
  *
  * Fail-Fast 方針: 保存データの破損や容量超過は補正・黙殺せず StorageError を
  * 投げ、UI側でユーザーに通知します。
+ *
+ * 旧形式データの自動移行: MP・必殺技タイプ・パッシブ導入前(v0.1.0)の
+ * キャラクターは読み込み時にデフォルト値を補完し、対戦可能なまま残します
+ * (ユーザーの作成済みキャラクターを失わせないための明示的な移行処理です)。
  */
 import type { Character } from "../types";
+
+/** 旧形式キャラクターに補完するデフォルトの最大MPです。 */
+const DEFAULT_MP = 50;
+/** 旧形式キャラクターの必殺技に補完するデフォルトの消費MPです。 */
+const DEFAULT_SPECIAL_MP_COST = 30;
 
 /** localStorage のキーです。 */
 export const STORAGE_KEY = "image-battler:characters";
@@ -35,7 +44,36 @@ export function loadCharacters(storage: Storage = localStorage): Character[] {
   if (!Array.isArray(parsed)) {
     throw new StorageError("保存データの形式が不正です(配列ではありません)。");
   }
-  return parsed as Character[];
+  try {
+    return (parsed as Character[]).map(migrateCharacter);
+  } catch (error) {
+    // 要素がキャラクターの形をしていない場合(specialMove欠落など)は
+    // TypeErrorのまま漏らさず、UIが通知できるStorageErrorに変換します
+    throw new StorageError(
+      `保存データの形式が不正です(キャラクターデータを解析できません)。原因: ${String(error)}`,
+    );
+  }
+}
+
+/**
+ * 旧形式(v0.1.0)のキャラクターに新フィールドのデフォルト値を補完します。
+ * 新形式のキャラクターはそのまま返します。
+ */
+function migrateCharacter(stored: Character): Character {
+  const specialMove = stored.specialMove;
+  return {
+    ...stored,
+    mp: stored.mp ?? DEFAULT_MP,
+    specialMove: {
+      ...specialMove,
+      // 旧形式の必殺技は全キャラ共通の「単発ダメージ技」だったため attack 扱いにします
+      type: specialMove.type ?? "attack",
+      mpCost: specialMove.mpCost ?? DEFAULT_SPECIAL_MP_COST,
+      ailment: specialMove.ailment ?? null,
+    },
+    // 旧形式キャラはパッシブなし(null)として扱います
+    passive: stored.passive ?? null,
+  };
 }
 
 /**

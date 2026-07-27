@@ -18,6 +18,7 @@
   --hp-high: #47e08d;
   --hp-mid: #ffd24a;
   --hp-low: #ff5a6e;
+  --mp: #7d8cff;
   --font-dot: "DotGothic16", "Hiragino Kaku Gothic ProN", "Yu Gothic", monospace;
   --font-display: "Shippori Mincho B1", "Hiragino Mincho ProN", serif;
   --font-body: "Hiragino Kaku Gothic ProN", "Yu Gothic", system-ui, sans-serif;
@@ -403,6 +404,47 @@ img {
   color: #ffe9a8;
 }
 
+.card-special-meta {
+  font-size: 11px;
+  color: var(--muted);
+  width: 100%;
+}
+
+/* パッシブスキル(とくせい)行 */
+.card-passive {
+  margin-top: 8px;
+  border: 1px solid rgba(87, 185, 255, 0.4);
+  background: rgba(87, 185, 255, 0.07);
+  border-radius: 6px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-passive-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #06101c;
+  background: var(--p1);
+  padding: 2px 7px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.card-passive-name {
+  font-family: var(--font-dot);
+  font-size: 13px;
+  color: #bfe3ff;
+}
+
+.card-passive-desc {
+  font-size: 11px;
+  color: var(--muted);
+  width: 100%;
+}
+
 /* ---------- VSパネル(ホーム) ---------- */
 
 .vs-panel {
@@ -681,6 +723,57 @@ img {
   font-size: 13px;
   align-self: flex-end;
   margin-top: 4px;
+}
+
+.mp-bar {
+  width: 100%;
+  height: 8px;
+  border: 2px solid var(--paper);
+  border-radius: 4px;
+  background: #000;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.mp-fill {
+  display: block;
+  height: 100%;
+  background: var(--mp);
+  transition: width 0.45s ease-out;
+}
+
+.mp-text {
+  font-family: var(--font-dot);
+  font-size: 11px;
+  color: var(--muted);
+  align-self: flex-end;
+  margin-top: 3px;
+}
+
+/* 状態異常バッジ(罹患中のみ表示) */
+.ailment-badge {
+  font-family: var(--font-dot);
+  font-size: 12px;
+  color: #10131f;
+  padding: 2px 10px;
+  border-radius: 4px;
+  margin-top: 6px;
+}
+
+.ailment-poison {
+  background: #b26bff;
+}
+
+.ailment-paralysis {
+  background: var(--gold);
+}
+
+.ailment-burn {
+  background: #ff8a3d;
+}
+
+.ailment-freeze {
+  background: #6fd9ff;
 }
 
 .fighter-winner .fighter-portrait {

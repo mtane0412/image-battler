@@ -20,6 +20,7 @@ afterEach(() => {
 function validStatsJson(): string {
   return JSON.stringify({
     hp: 100,
+    mp: 60,
     attack: 40,
     defense: 20,
     speed: 50,
@@ -28,8 +29,16 @@ function validStatsJson(): string {
     description: "よく寝る猫の戦士です",
     specialMove: {
       name: "爪とぎクラッシュ",
+      type: "attack",
       power: 60,
+      mpCost: 30,
+      ailment: "none",
       description: "鋭い爪で連続攻撃を繰り出す",
+    },
+    passive: {
+      id: "counter",
+      name: "猫の反射神経",
+      description: "攻撃を受けると鋭い爪で反撃する",
     },
   });
 }
