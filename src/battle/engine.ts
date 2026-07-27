@@ -80,6 +80,12 @@ const MAX_ACTIONS = 100;
 const MP_REGEN_PER_TURN = 10;
 /** 回復技が使用可能になるHP残存率のしきい値 */
 const HEAL_HP_THRESHOLD = 0.6;
+/**
+ * 回復タイプの必殺技の回復量係数(威力に掛ける)。
+ * HP範囲(100〜300)に対して威力(30〜80)の素の値では回復が薄すぎるため、
+ * 威力の2倍を回復量の基準にします。
+ */
+const HEAL_POWER_FACTOR = 2;
 /** 異常タイプの必殺技のダメージ係数(威力に掛ける) */
 const AILMENT_MOVE_POWER_FACTOR = 0.3;
 /** 毒のスリップダメージ(最大HPに掛ける) */
@@ -411,7 +417,7 @@ export function simulateBattle(
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const healed = Math.min(
           actor.character.hp - actor.hp,
-          Math.max(1, Math.round(move.power * variance)),
+          Math.max(1, Math.round(move.power * HEAL_POWER_FACTOR * variance)),
         );
         actor.hp += healed;
         emit(turn, actor, actor, {

@@ -69,13 +69,15 @@ describe("旧形式データの自動移行", () => {
     createdAt: "2026-07-01T00:00:00.000Z",
   };
 
-  it("旧形式キャラクターには新フィールドのデフォルト値が補完される", () => {
+  it("旧形式キャラクターには新フィールドのデフォルト値が補完され、HPが2倍になる", () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([旧形式キャラ]));
     const [migrated] = loadCharacters();
     // 既存のフィールドはそのまま保持される
     expect(migrated?.name).toBe("旧もふ吉");
     expect(migrated?.specialMove.name).toBe("爪とぎクラッシュ");
     expect(migrated?.specialMove.power).toBe(60);
+    // HP範囲の拡大(50〜150 → 100〜300)に合わせてHPが2倍に補正される
+    expect(migrated?.hp).toBe(200);
     // 新フィールドがデフォルト値で補完される
     expect(migrated?.mp).toBe(50);
     expect(migrated?.specialMove.type).toBe("attack");
@@ -84,14 +86,54 @@ describe("旧形式データの自動移行", () => {
     expect(migrated?.passive).toBeNull();
   });
 
-  it("新形式キャラクターは変更されずそのまま読み出せる", () => {
+  it("バージョンなしの配列形式(HP範囲拡大前)のキャラクターはHPだけが2倍になる", () => {
+    // HP範囲拡大前の保存データは生の配列です。旧範囲(50〜150)で生成された
+    // キャラクターを新範囲(100〜300)で公平に戦わせるためHPを2倍にします
     const character = makeCharacter({
       id: "id-新がぶ太",
       name: "新がぶ太",
+      hp: 150,
       mp: 80,
     });
     localStorage.setItem(STORAGE_KEY, JSON.stringify([character]));
+    expect(loadCharacters()).toEqual([{ ...character, hp: 300 }]);
+  });
+});
+
+describe("保存データのバージョン管理", () => {
+  it("saveCharacterはバージョン付きの形式で保存する", () => {
+    saveCharacter(makeCharacter({ id: "id-もふ吉", name: "もふ吉" }));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(JSON.parse(raw ?? "")).toMatchObject({ version: 2 });
+  });
+
+  it("バージョン付きデータのHPは移行済みのためそのまま読み出せる", () => {
+    // 保存(バージョン付与) → 読込 を繰り返してもHPが二重に2倍にならないこと
+    const character = makeCharacter({ id: "id-もふ吉", name: "もふ吉", hp: 120 });
+    saveCharacter(character);
     expect(loadCharacters()).toEqual([character]);
+    saveCharacter(makeCharacter({ id: "id-がぶ太", name: "がぶ太", hp: 250 }));
+    expect(loadCharacters().map((c) => c.hp)).toEqual([120, 250]);
+  });
+
+  it("未対応のバージョンはStorageErrorを投げる(Fail-Fast)", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: 99, characters: [] }),
+    );
+    expect(() => loadCharacters()).toThrow(StorageError);
+  });
+
+  it("バージョン付きデータに不正な要素が含まれる場合はStorageErrorを投げる(Fail-Fast)", () => {
+    // 手動編集などで壊れたバージョン付きデータも旧形式と同様に検出する
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        characters: [null, { name: "specialMoveなし" }],
+      }),
+    );
+    expect(() => loadCharacters()).toThrow(StorageError);
   });
 });
 
@@ -111,7 +153,7 @@ describe("異常系(Fail-Fast)", () => {
     expect(() => loadCharacters()).toThrow(StorageError);
   });
 
-  it("配列以外のJSONが保存されている場合はStorageErrorを投げる", () => {
+  it("配列でもバージョン付き形式でもないJSONの場合はStorageErrorを投げる", () => {
     localStorage.setItem(STORAGE_KEY, '{"name":"もふ吉"}');
     expect(() => loadCharacters()).toThrow(StorageError);
   });
