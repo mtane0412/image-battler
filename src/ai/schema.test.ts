@@ -179,10 +179,37 @@ describe("parseGeneratedStats", () => {
     expect(stats.passive.description).toBe("攻撃を受けると鋭い爪で反撃する");
   });
 
+  it("数字で終わる文字列値の閉じ引用符欠落も修復してパースできる", () => {
+    // 「攻撃+10」のように説明文が数字で終わる場合にも引用符を補えること。
+    // 数値終わりの正常な構造(例: `"mp": 60}}`)に誤って引用符を挿入した
+    // 候補はJSONとして不正のままなので採用されず、安全に共存できる
+    const payload = validPayload();
+    (payload.passive as Record<string, unknown>).description =
+      "受けるダメージを軽減する 効果は+10";
+    const valid = JSON.stringify(payload);
+    const corrupted = `${valid.slice(0, -3)}}}`;
+    expect(() => JSON.parse(corrupted)).toThrow();
+    const stats = parseGeneratedStats(corrupted, 許可候補);
+    expect(stats.passive.description).toBe("受けるダメージを軽減する 効果は+10");
+  });
+
+  it("全角空白で終わる文字列値の閉じ引用符欠落も修復してパースできる", () => {
+    // 日本語出力のモデルは末尾に全角空白を付けることがある。
+    // 全角空白はJSONの構文空白ではないため文字列内容側に残して修復し、
+    // パース後の trim で除去される
+    const payload = validPayload();
+    (payload.passive as Record<string, unknown>).description =
+      "攻撃を受けると鋭い爪で反撃する　";
+    const valid = JSON.stringify(payload);
+    const corrupted = `${valid.slice(0, -3)}}}`;
+    expect(() => JSON.parse(corrupted)).toThrow();
+    const stats = parseGeneratedStats(corrupted, 許可候補);
+    expect(stats.passive.description).toBe("攻撃を受けると鋭い爪で反撃する");
+  });
+
   it("数値の直後に余分な閉じ括弧がある出力は修復せず拒否する(Fail-Fast)", () => {
-    // 引用符の補完は末尾の閉じ括弧の直前が数字の場合は行わない
-    // (正常な数値終わりの構造に引用符を挿入すると数値を壊すため)。
-    // 修復できない構造の壊れ方はそのまま CharacterParseError で拒否する
+    // 引用符を補った候補(`"mp": 60"}}`)はJSONとして不正のままなので
+    // 採用されず、修復できない構造の壊れ方は CharacterParseError で拒否する
     expect(() => parseGeneratedStats('{"hp": 100, "mp": 60}}', 許可候補)).toThrow(
       CharacterParseError,
     );

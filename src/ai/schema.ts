@@ -176,8 +176,8 @@ export function parseGeneratedStats(
  * 3. 完結したJSONの後ろにゴミを出力する(例: `…}}` の後に「{」+改行)
  *
  * 癖は同時に発生しうるため、単独・組み合わせの修復候補をすべて試します。
- * JSON.parse が成功した候補だけを採用するため、誤修復で壊れた候補が
- * 採用されることはありません。
+ * JSONとして成立しない候補は採用されないため、構文を壊す誤修復は
+ * 排除されます(構文的に成立した最初の候補を決定論的に採用します)。
  */
 function parseWithQuirkRepairs(raw: string): unknown {
   const trimmed = trimTrailingGarbage(raw);
@@ -214,12 +214,15 @@ function repairQuoteQuirk(raw: string): string {
  * 癖2の修復: 末尾の閉じ括弧の直前に閉じ引用符「"」を補います
  * (Vercel本番の実機例: `"description": "相手の攻撃を軽々と回避する。}}`)。
  *
- * 直前の文字が引用符・数字・閉じ括弧の場合は補いません。数字を除外するのは、
- * 数値で終わる正常な構造(例: `"mpCost": 30}}`)に引用符を挿入して
- * 数値を壊さないためです。
+ * 直前の文字が引用符・閉じ括弧・JSON構文空白の場合は補いません。
+ * 数値で終わる正常な構造(例: `"mpCost": 30}}`)に補った候補は
+ * JSONとして不正のままなので採用されず、数値を壊すことはありません。
+ * 空白はJSONの構文空白(space/tab/CR/LF)だけを対象にします。全角空白などの
+ * Unicode空白は文字列内容の一部として残して修復し、パース後の trim で
+ * 除去されます。
  */
 function repairMissingClosingQuote(raw: string): string {
-  return raw.replace(/([^"\d\s}\]])((?:\s*[}\]])+)$/, '$1"$2');
+  return raw.replace(/([^" \t\r\n}\]])((?:[ \t\r\n]*[}\]])+)$/, '$1"$2');
 }
 
 /**
@@ -227,6 +230,9 @@ function repairMissingClosingQuote(raw: string): string {
  * (Vercel本番の実機例: `…}}` の後に「{」+改行が続く)。
  * このスキーマの正しい出力は必ず「}」で終わるため、最後の「}」より後ろは
  * すべて不要とみなして切り捨てます。「}」が無い場合は修復せずそのまま返します。
+ *
+ * 制限: ゴミ側に「}」が含まれるまで出力が進んだ場合(未観測)は切り捨て位置を
+ * 誤り、修復できずに CharacterParseError となります(Fail-Fast)。
  */
 function trimTrailingGarbage(raw: string): string {
   const lastBrace = raw.lastIndexOf("}");
