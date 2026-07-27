@@ -924,6 +924,21 @@ img {
   text-shadow: 0 0 12px rgba(255, 210, 74, 0.8);
 }
 
+/* 断末魔カットインは彩度を落として敗北感を出します */
+.cutin-ko .cutin-portrait {
+  filter: grayscale(0.85);
+  border-color: #8b93a8;
+  box-shadow: 0 0 26px rgba(139, 147, 168, 0.45);
+}
+
+.cutin-ko .cutin-move {
+  color: #aab2c8;
+}
+
+.cutin-ko .cutin-speech {
+  text-shadow: 0 0 12px rgba(170, 178, 200, 0.7);
+}
+
 @keyframes cutin-pop {
   from {
     opacity: 0;

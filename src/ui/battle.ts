@@ -17,6 +17,10 @@
  * 上限時間(SPEECH_WAIT_LIMIT_MS)までに間に合わなければセリフなしで進行します
  * (テンポを守るための明示的な仕様です)。
  *
+ * 決着セリフ: 勝敗も再生前に確定しているため、敗者の断末魔と勝者の決めゼリフも
+ * 再生開始時に先行生成します。決着時は「断末魔 → 勝利ファンファーレ →
+ * 勝者のセリフ → 締めの実況」の順で表示します(引き分け時はどちらもなし)。
+ *
  * 実況の対象: 行動イベント(通常攻撃・ミス・必殺技・反撃)のみ実況します。
  * 毎ターン発生しうる状態異常の経過(スリップダメージ・行動不能など)や
  * パッシブによる回復(life-steal / regenerate)は実況せず、メカニカルログ
@@ -33,15 +37,17 @@ import { simulateBattle } from "../battle/engine";
 import {
   createNarrationSession,
   generateBattleStory,
-  generateSpecialMoveSpeech,
+  generateCharacterSpeech,
   narrateOnce,
 } from "../ai/nano";
 import {
+  buildDefeatSpeechPrompt,
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
   buildSpecialMoveSpeechPrompt,
   buildStoryPrompt,
+  buildVictorySpeechPrompt,
   type NarrationParams,
 } from "../ai/prompts";
 import { sampleStoryIngredients } from "../ai/story";
@@ -158,7 +164,7 @@ export function renderBattle(
       if (!usesSpecial) {
         continue;
       }
-      const promise = generateSpecialMoveSpeech(
+      const promise = generateCharacterSpeech(
         buildSpecialMoveSpeechPrompt(
           character,
           character.specialMove,
@@ -169,6 +175,30 @@ export function renderBattle(
       // 未処理エラーとならないよう、先に握っておきます(失敗の通知は取得側で行います)
       void promise.catch(() => undefined);
       speechPromises.set(character.id, promise);
+    }
+    // 決着後のセリフ(敗者の断末魔・勝者の決めゼリフ)も先行生成します
+    // (引き分けの場合はどちらも生成しません)
+    let defeatSpeechPromise: Promise<string> | undefined;
+    let victorySpeechPromise: Promise<string> | undefined;
+    if (result.winnerId !== null && result.loserId !== null) {
+      const winnerCharacter = result.winnerId === first.id ? first : second;
+      const loserCharacter = result.loserId === first.id ? first : second;
+      defeatSpeechPromise = generateCharacterSpeech(
+        buildDefeatSpeechPrompt(
+          loserCharacter,
+          winnerCharacter.name,
+          storyIngredients,
+        ),
+      );
+      victorySpeechPromise = generateCharacterSpeech(
+        buildVictorySpeechPrompt(
+          winnerCharacter,
+          loserCharacter.name,
+          storyIngredients,
+        ),
+      );
+      void defeatSpeechPromise.catch(() => undefined);
+      void victorySpeechPromise.catch(() => undefined);
     }
     // 必殺技の固有効果音はキャラクターごとに一度だけ決定します
     const byId: Record<string, BattleParticipant> = {
@@ -270,7 +300,11 @@ export function renderBattle(
           return;
         }
         if (speech !== null) {
-          await showCutin(actor, speech);
+          await showCutin(
+            actor,
+            speech,
+            `必殺技 ${actor.character.specialMove.name}`,
+          );
           await typeLine(`${actor.character.name}「${speech}」`, "speech");
         }
       }
@@ -301,13 +335,36 @@ export function renderBattle(
     if (aborted) {
       return;
     }
+    const winner = result.winnerId === null ? undefined : byId[result.winnerId];
+    const loser = result.loserId === null ? undefined : byId[result.loserId];
+
+    // 敗者の断末魔を勝利ファンファーレの前に挟みます(間に合わなければスキップ)
+    if (loser !== undefined) {
+      const defeatSpeech = await waitForSpeech(defeatSpeechPromise);
+      if (aborted) {
+        return;
+      }
+      if (defeatSpeech !== null) {
+        await showCutin(loser, defeatSpeech, "断末魔", "cutin-ko");
+        await typeLine(`${loser.character.name}「${defeatSpeech}」`, "speech");
+      }
+    }
     sePlayer.play(result.winnerId === null ? "draw" : "victory");
     showResult(result.winnerId, byId);
+    // 勝者の決めゼリフを締めの実況の前に挟みます(間に合わなければスキップ)
+    if (winner !== undefined) {
+      const victorySpeech = await waitForSpeech(victorySpeechPromise);
+      if (aborted) {
+        return;
+      }
+      if (victorySpeech !== null) {
+        await showCutin(winner, victorySpeech, "勝利");
+        await typeLine(`${winner.character.name}「${victorySpeech}」`, "speech");
+      }
+    }
     if (narrator !== null) {
-      const winner = result.winnerId === null ? null : byId[result.winnerId];
-      const loser = result.loserId === null ? null : byId[result.loserId];
       const prompt =
-        winner !== undefined && winner !== null && loser !== undefined && loser !== null
+        winner !== undefined && loser !== undefined
           ? buildResultPrompt(winner.character.name, loser.character.name, false)
           : buildResultPrompt(first.name, second.name, true);
       try {
@@ -381,19 +438,27 @@ export function renderBattle(
   }
 
   /**
-   * 必殺技カットイン(キャラクター画像+決めゼリフ)をステージ上に重ねて表示します。
+   * カットイン(キャラクター画像+セリフ)をステージ上に重ねて表示します。
+   * 必殺技・勝利・断末魔で共用し、label に場面名(「必殺技 ○○」など)を渡します。
    * アニメーション抑制環境・非表示タブでは表示しません。セリフ本文はログ行でも
    * 表示するため、カットインが出なくても情報は欠けません。
+   * @param extraClassName 場面ごとの見た目調整用クラス(断末魔の cutin-ko など)
    */
   async function showCutin(
     participant: BattleParticipant,
     speech: string,
+    label: string,
+    extraClassName?: string,
   ): Promise<void> {
     if (reducedMotion || document.hidden) {
       return;
     }
     const side = participant.block === p1 ? "cutin-left" : "cutin-right";
-    const overlay = el("div", { className: `cutin ${side}` }, [
+    const classNames = ["cutin", side];
+    if (extraClassName !== undefined) {
+      classNames.push(extraClassName);
+    }
+    const overlay = el("div", { className: classNames.join(" ") }, [
       el("div", { className: "cutin-lines" }),
       el("img", {
         className: "cutin-portrait",
@@ -401,10 +466,7 @@ export function renderBattle(
         attrs: { src: participant.character.imageDataUrl, alt: "" },
       }),
       el("div", { className: "cutin-balloon" }, [
-        el("p", {
-          className: "cutin-move",
-          text: `必殺技 ${participant.character.specialMove.name}`,
-        }),
+        el("p", { className: "cutin-move", text: label }),
         el("p", { className: "cutin-speech", text: `「${speech}」` }),
       ]),
     ]);

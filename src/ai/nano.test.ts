@@ -9,8 +9,8 @@ import {
   checkNanoAvailability,
   createCharacterGenerationSession,
   generateBattleStory,
+  generateCharacterSpeech,
   generateCharacterStats,
-  generateSpecialMoveSpeech,
   narrateOnce,
 } from "./nano";
 import { sequenceRng } from "../testing/fixtures";
@@ -184,14 +184,14 @@ describe("generateBattleStory", () => {
   });
 });
 
-describe("generateSpecialMoveSpeech", () => {
+describe("generateCharacterSpeech", () => {
   it("セッションを作成してセリフを生成し、セッションを破棄する", async () => {
     const destroy = vi.fn();
     const prompt = vi.fn().mockResolvedValue("  月夜の爪を見るがいい!  \n");
     const create = vi.fn().mockResolvedValue({ prompt, destroy });
     vi.stubGlobal("LanguageModel", { availability: vi.fn(), create });
 
-    const speech = await generateSpecialMoveSpeech("決めゼリフを書いて");
+    const speech = await generateCharacterSpeech("決めゼリフを書いて");
 
     expect(speech).toBe("月夜の爪を見るがいい!");
     expect(prompt).toHaveBeenCalledWith("決めゼリフを書いて");
@@ -204,7 +204,7 @@ describe("generateSpecialMoveSpeech", () => {
     const create = vi.fn().mockResolvedValue({ prompt, destroy });
     vi.stubGlobal("LanguageModel", { availability: vi.fn(), create });
 
-    await expect(generateSpecialMoveSpeech("決めゼリフを書いて")).rejects.toThrow(
+    await expect(generateCharacterSpeech("決めゼリフを書いて")).rejects.toThrow(
       "生成失敗",
     );
     expect(destroy).toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe("generateSpecialMoveSpeech", () => {
 
   it("LanguageModelが存在しない場合はGeminiNanoUnavailableErrorを投げる", async () => {
     vi.stubGlobal("LanguageModel", undefined);
-    await expect(generateSpecialMoveSpeech("決めゼリフを書いて")).rejects.toThrow(
+    await expect(generateCharacterSpeech("決めゼリフを書いて")).rejects.toThrow(
       GeminiNanoUnavailableError,
     );
   });

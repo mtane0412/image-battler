@@ -97,21 +97,57 @@ export const SPEECH_SYSTEM_PROMPT = [
 ].join("");
 
 /**
- * 必殺技を放つ瞬間の決めゼリフ用プロンプトを組み立てます。
+ * セリフ系プロンプトが共有する、キャラクター設定と舞台の説明行です。
  * 舞台と因縁(ingredients)は前口上(buildStoryPrompt)と同じ抽選材料を渡し、
- * セリフの世界観を前口上と揃えます(材料が毎試合変わるため、同じキャラクター・
- * 同じ技でも試合ごとに違うセリフになります)。
+ * セリフの世界観を前口上と揃えます(材料が毎試合変わるため、同じキャラクター
+ * でも試合ごとに違うセリフになります)。
  */
+function speechContextLines(
+  fighter: StoryFighter,
+  ingredients: StoryIngredients,
+): string[] {
+  return [
+    `あなたは「${fighter.title}」こと ${fighter.name}。${fighter.description}`,
+    `舞台は${ingredients.stage}。相手との関係は${ingredients.relation}。`,
+  ];
+}
+
+/** 必殺技を放つ瞬間の決めゼリフ用プロンプトを組み立てます。 */
 export function buildSpecialMoveSpeechPrompt(
   fighter: StoryFighter,
   move: { name: string; description: string },
   ingredients: StoryIngredients,
 ): string {
   return [
-    `あなたは「${fighter.title}」こと ${fighter.name}。${fighter.description}`,
-    `舞台は${ingredients.stage}。相手との関係は${ingredients.relation}。`,
+    ...speechContextLines(fighter, ingredients),
     `いま必殺技「${move.name}」(${move.description})を放ちます。`,
     "技を放つ瞬間の決めゼリフを15文字以内で1つ書いてください。",
+  ].join("\n");
+}
+
+/** 勝利の瞬間の決めゼリフ用プロンプトを組み立てます。 */
+export function buildVictorySpeechPrompt(
+  fighter: StoryFighter,
+  opponentName: string,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    ...speechContextLines(fighter, ingredients),
+    `激闘の末、${opponentName}を打ち破って勝利しました。`,
+    "勝利の瞬間の決めゼリフを15文字以内で1つ書いてください。",
+  ].join("\n");
+}
+
+/** 力尽きて倒れる瞬間の断末魔用プロンプトを組み立てます。 */
+export function buildDefeatSpeechPrompt(
+  fighter: StoryFighter,
+  opponentName: string,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    ...speechContextLines(fighter, ingredients),
+    `激闘の末、${opponentName}に敗れて力尽きました。`,
+    "倒れる瞬間の断末魔のセリフを15文字以内で1つ書いてください。",
   ].join("\n");
 }
 

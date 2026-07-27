@@ -165,13 +165,12 @@ export async function generateBattleStory(prompt: string): Promise<string> {
 }
 
 /**
- * 必殺技の決めゼリフを1回だけ生成します。
- * @param prompt buildSpecialMoveSpeechPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * キャラクターのセリフ(必殺技・勝利・断末魔)を1回だけ生成します。
+ * @param prompt buildSpecialMoveSpeechPrompt / buildVictorySpeechPrompt /
+ *   buildDefeatSpeechPrompt(ai/prompts.ts)で組み立てたプロンプト
  * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
  */
-export async function generateSpecialMoveSpeech(
-  prompt: string,
-): Promise<string> {
+export async function generateCharacterSpeech(prompt: string): Promise<string> {
   return generateOnce(SPEECH_SYSTEM_PROMPT, prompt);
 }
 

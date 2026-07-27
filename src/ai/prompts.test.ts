@@ -5,11 +5,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCharacterPrompt,
+  buildDefeatSpeechPrompt,
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
   buildSpecialMoveSpeechPrompt,
   buildStoryPrompt,
+  buildVictorySpeechPrompt,
 } from "./prompts";
 
 describe("buildCharacterPrompt", () => {
@@ -197,6 +199,47 @@ describe("buildSpecialMoveSpeechPrompt", () => {
   it("短いセリフを1つだけ求める指示が含まれる", () => {
     // 小型モデルが長文を返さないよう、文字数の上限を明示する
     const prompt = buildSpecialMoveSpeechPrompt(mofukichi, move, ingredients);
+    expect(prompt).toContain("15文字");
+  });
+});
+
+describe("buildVictorySpeechPrompt / buildDefeatSpeechPrompt", () => {
+  const mofukichi = {
+    name: "もふ吉",
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+  };
+  const ingredients = { stage: "満月の廃神殿", relation: "宿命のライバル" };
+
+  it("勝利セリフにはキャラ設定・相手の名前・舞台・因縁が含まれる", () => {
+    const prompt = buildVictorySpeechPrompt(mofukichi, "がぶ太", ingredients);
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("深淵の眠り猫");
+    expect(prompt).toContain("よく寝る猫の戦士です");
+    expect(prompt).toContain("がぶ太");
+    expect(prompt).toContain("満月の廃神殿");
+    expect(prompt).toContain("宿命のライバル");
+  });
+
+  it("勝利セリフには勝利の場面と文字数上限の指示が含まれる", () => {
+    const prompt = buildVictorySpeechPrompt(mofukichi, "がぶ太", ingredients);
+    expect(prompt).toContain("勝利");
+    expect(prompt).toContain("15文字");
+  });
+
+  it("断末魔にはキャラ設定・相手の名前・舞台・因縁が含まれる", () => {
+    const prompt = buildDefeatSpeechPrompt(mofukichi, "がぶ太", ingredients);
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("深淵の眠り猫");
+    expect(prompt).toContain("よく寝る猫の戦士です");
+    expect(prompt).toContain("がぶ太");
+    expect(prompt).toContain("満月の廃神殿");
+    expect(prompt).toContain("宿命のライバル");
+  });
+
+  it("断末魔には倒れる場面と文字数上限の指示が含まれる", () => {
+    const prompt = buildDefeatSpeechPrompt(mofukichi, "がぶ太", ingredients);
+    expect(prompt).toContain("断末魔");
     expect(prompt).toContain("15文字");
   });
 });
