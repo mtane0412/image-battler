@@ -489,6 +489,225 @@ describe("simulateBattle: パッシブスキル", () => {
       after: { a: { mp: 20 } },
     });
   });
+
+  it("life-steal は通常攻撃で与えたダメージの30%だけHPを回復する", () => {
+    // 1手目: bの攻撃32ダメージでaのHPは68に減る
+    // 2手目: aの攻撃32ダメージのあと round(32*0.3)=10 回復してHP78になり、
+    //         life-steal イベントが攻撃イベントに続く
+    const 吸血役 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("life-steal"),
+    });
+    const 攻め手 = makeCharacter({
+      id: "b",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 90,
+    });
+    const result = simulateBattle(
+      吸血役,
+      攻め手,
+      sequenceRng([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[1]).toMatchObject({
+      type: "attack",
+      actorId: "a",
+      damage: 32,
+    });
+    expect(result.events[2]).toMatchObject({
+      type: "life-steal",
+      healed: 10,
+      actorId: "a",
+      targetId: "a",
+      turn: 2,
+      after: { a: { hp: 78 }, b: { hp: 68 } },
+    });
+  });
+
+  it("life-steal はHPが満タンのときは回復イベントを出さない", () => {
+    // 1手目のaの攻撃後、回復イベントを挟まずに2手目のbの行動が続く
+    const 吸血役 = makeCharacter({
+      id: "a",
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 90,
+      passive: makePassive("life-steal"),
+    });
+    const 受け手 = makeCharacter({ id: "b", attack: 40, defense: 20, mp: 0, speed: 30 });
+    const result = simulateBattle(吸血役, 受け手, sequenceRng([]));
+    expect(result.events[0]).toMatchObject({ type: "attack", actorId: "a" });
+    expect(result.events[1]).toMatchObject({ type: "attack", actorId: "b" });
+  });
+
+  it("regenerate は行動後に最大HPの1/16だけHPが回復する", () => {
+    // 1手目: bの攻撃32ダメージでaのHPは68に減る
+    // 2手目: aの攻撃の行動後に round(100/16)=6 回復してHP74になる
+    const 再生役 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("regenerate"),
+    });
+    const 攻め手 = makeCharacter({
+      id: "b",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 90,
+    });
+    const result = simulateBattle(
+      再生役,
+      攻め手,
+      sequenceRng([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[2]).toMatchObject({
+      type: "regenerate",
+      healed: 6,
+      actorId: "a",
+      targetId: "a",
+      turn: 2,
+      after: { a: { hp: 74 } },
+    });
+  });
+
+  it("regenerate はHPが満タンのときは回復イベントを出さない", () => {
+    // 1手目のaの行動後は全快のため回復イベントがなく、2手目のbの行動が続く
+    const 再生役 = makeCharacter({
+      id: "a",
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 90,
+      passive: makePassive("regenerate"),
+    });
+    const 受け手 = makeCharacter({ id: "b", attack: 40, defense: 20, mp: 0, speed: 30 });
+    const result = simulateBattle(再生役, 受け手, sequenceRng([]));
+    expect(result.events[0]).toMatchObject({ type: "attack", actorId: "a" });
+    expect(result.events[1]).toMatchObject({ type: "attack", actorId: "b" });
+  });
+
+  it("berserk はHPが30%以下のとき通常攻撃のダメージが1.5倍になる", () => {
+    // 1手目: bの攻撃78*1.0 - 20*0.4 = 70ダメージでaのHPはちょうど30(30%)になる
+    // 2手目: aの攻撃は berserk なしなら 40-8=32、berserk ありなら 40*1.5-8=52
+    const 狂戦士 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("berserk"),
+    });
+    const 通常 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+    });
+    const 攻め手 = makeCharacter({ id: "b", attack: 78, defense: 20, mp: 0, speed: 90 });
+    const 乱数 = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    expect(
+      simulateBattle(狂戦士, 攻め手, sequenceRng([...乱数])).events[1],
+    ).toMatchObject({ type: "attack", actorId: "a", damage: 52 });
+    expect(
+      simulateBattle(通常, 攻め手, sequenceRng([...乱数])).events[1],
+    ).toMatchObject({ type: "attack", actorId: "a", damage: 32 });
+  });
+
+  it("berserk はHPが30%を超えている間は発動しない", () => {
+    // 1手目: bの攻撃77*1.0 - 8 = 69ダメージでaのHPは31(30%超)
+    // 2手目: aの攻撃力は上がらず 40-8=32ダメージのまま
+    const 狂戦士 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("berserk"),
+    });
+    const 攻め手 = makeCharacter({ id: "b", attack: 77, defense: 20, mp: 0, speed: 90 });
+    const result = simulateBattle(
+      狂戦士,
+      攻め手,
+      sequenceRng([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[1]).toMatchObject({ type: "attack", actorId: "a", damage: 32 });
+  });
+
+  it("evasion 持ちへの通常攻撃はミス率が20%に上がる", () => {
+    // ミス判定0.1は通常(5%)なら命中、evasion持ち(20%)ならミスになる
+    const 攻め手 = makeCharacter({ id: "a", mp: 0, speed: 90 });
+    const 回避役 = makeCharacter({
+      id: "b",
+      mp: 0,
+      speed: 30,
+      passive: makePassive("evasion"),
+    });
+    const 鈍重役 = makeCharacter({ id: "b", mp: 0, speed: 30 });
+    expect(
+      simulateBattle(攻め手, 回避役, sequenceRng([0.1])).events[0],
+    ).toMatchObject({ type: "miss" });
+    expect(
+      simulateBattle(攻め手, 鈍重役, sequenceRng([0.1, 0.5, 0.5])).events[0],
+    ).toMatchObject({ type: "attack" });
+  });
+
+  it("first-strike 持ちは素早さが低くても先攻になる", () => {
+    const 先制役 = makeCharacter({
+      id: "a",
+      speed: 10,
+      mp: 0,
+      passive: makePassive("first-strike"),
+    });
+    const 韋駄天 = makeCharacter({ id: "b", speed: 90, mp: 0 });
+    const result = simulateBattle(先制役, 韋駄天, sequenceRng([0.9, 0.5, 0.5]));
+    // 先頭の0.9はaのミス判定に消費されて命中になる(先攻決定には使われない)
+    expect(result.events[0]).toMatchObject({ type: "attack", actorId: "a" });
+  });
+
+  it("同速でも first-strike 持ちが先攻になり、先攻決定の乱数は消費されない", () => {
+    // 先攻決定に乱数を使う実装なら、先頭の0.9(≥0.5)でbが先攻になってしまうはず
+    const 先制役 = makeCharacter({
+      id: "a",
+      speed: 50,
+      mp: 0,
+      passive: makePassive("first-strike"),
+    });
+    const 同速役 = makeCharacter({ id: "b", speed: 50, mp: 0 });
+    const result = simulateBattle(先制役, 同速役, sequenceRng([0.9]));
+    expect(result.events[0]).toMatchObject({ type: "attack", actorId: "a" });
+  });
+
+  it("両者が first-strike 持ちの場合は従来どおり素早さで先攻を決める", () => {
+    const a = makeCharacter({
+      id: "a",
+      speed: 30,
+      mp: 0,
+      passive: makePassive("first-strike"),
+    });
+    const b = makeCharacter({
+      id: "b",
+      speed: 90,
+      mp: 0,
+      passive: makePassive("first-strike"),
+    });
+    expect(simulateBattle(a, b, sequenceRng([])).events[0]?.actorId).toBe("b");
+  });
 });
 
 describe("simulateBattle: 入力検証", () => {

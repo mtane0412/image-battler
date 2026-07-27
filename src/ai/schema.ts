@@ -6,9 +6,17 @@
  * CharacterParseError を投げます。呼び出し側(UI)が再生成を促します。
  * 例外として、異常タイプ以外の必殺技の ailment フィールドは使用しない値のため
  * null に正規化します(補正ではなく無関係フィールドの破棄です)。
+ *
+ * パッシブスキルのidは、抽選済みの候補リスト(ai/passives.ts で抽選)だけを
+ * スキーマ・検証の両方で許可します。候補外のidは Fail-Fast で拒否します。
  */
-import type { AilmentType, GeneratedStats, PassiveSkill } from "../types";
-import { AILMENT_TYPES, PASSIVE_SKILL_IDS, SPECIAL_MOVE_TYPES } from "../types";
+import type {
+  AilmentType,
+  GeneratedStats,
+  PassiveSkill,
+  PassiveSkillId,
+} from "../types";
+import { AILMENT_TYPES, SPECIAL_MOVE_TYPES } from "../types";
 
 /** モデル出力の検証に失敗したときに投げるエラーです。 */
 export class CharacterParseError extends Error {
@@ -51,72 +59,85 @@ export const TEXT_LIMITS = {
 } as const;
 
 /**
- * Prompt API の responseConstraint に渡す JSON Schema です。
- * モデル出力をこの構造に制約します。
+ * Prompt API の responseConstraint に渡す JSON Schema を組み立てます。
+ * モデル出力をこの構造に制約します。パッシブスキルのidは抽選済みの
+ * 候補(passiveCandidates)だけを enum に許可します。
+ * @throws Error 候補が空の場合(enumが空のスキーマは無意味なため Fail-Fast)
  */
-export const CHARACTER_GENERATION_SCHEMA = {
-  type: "object",
-  required: [
-    "hp",
-    "mp",
-    "attack",
-    "defense",
-    "speed",
-    "luck",
-    "title",
-    "description",
-    "specialMove",
-    "passive",
-  ],
-  additionalProperties: false,
-  properties: {
-    hp: { type: "integer", minimum: STAT_RANGES.hp.min, maximum: STAT_RANGES.hp.max },
-    mp: { type: "integer", minimum: STAT_RANGES.mp.min, maximum: STAT_RANGES.mp.max },
-    attack: { type: "integer", minimum: STAT_RANGES.attack.min, maximum: STAT_RANGES.attack.max },
-    defense: { type: "integer", minimum: STAT_RANGES.defense.min, maximum: STAT_RANGES.defense.max },
-    speed: { type: "integer", minimum: STAT_RANGES.speed.min, maximum: STAT_RANGES.speed.max },
-    luck: { type: "integer", minimum: STAT_RANGES.luck.min, maximum: STAT_RANGES.luck.max },
-    title: { type: "string", maxLength: TEXT_LIMITS.name },
-    description: { type: "string", maxLength: TEXT_LIMITS.characterDescription },
-    specialMove: {
-      type: "object",
-      required: ["name", "type", "power", "mpCost", "ailment", "description"],
-      additionalProperties: false,
-      properties: {
-        name: { type: "string", maxLength: TEXT_LIMITS.name },
-        type: { type: "string", enum: SPECIAL_MOVE_TYPES },
-        power: {
-          type: "integer",
-          minimum: STAT_RANGES.specialPower.min,
-          maximum: STAT_RANGES.specialPower.max,
+export function buildCharacterGenerationSchema(
+  passiveCandidates: readonly PassiveSkillId[],
+) {
+  if (passiveCandidates.length === 0) {
+    throw new Error("パッシブスキルの候補が空です(抽選結果を渡してください)");
+  }
+  return {
+    type: "object",
+    required: [
+      "hp",
+      "mp",
+      "attack",
+      "defense",
+      "speed",
+      "luck",
+      "title",
+      "description",
+      "specialMove",
+      "passive",
+    ],
+    additionalProperties: false,
+    properties: {
+      hp: { type: "integer", minimum: STAT_RANGES.hp.min, maximum: STAT_RANGES.hp.max },
+      mp: { type: "integer", minimum: STAT_RANGES.mp.min, maximum: STAT_RANGES.mp.max },
+      attack: { type: "integer", minimum: STAT_RANGES.attack.min, maximum: STAT_RANGES.attack.max },
+      defense: { type: "integer", minimum: STAT_RANGES.defense.min, maximum: STAT_RANGES.defense.max },
+      speed: { type: "integer", minimum: STAT_RANGES.speed.min, maximum: STAT_RANGES.speed.max },
+      luck: { type: "integer", minimum: STAT_RANGES.luck.min, maximum: STAT_RANGES.luck.max },
+      title: { type: "string", maxLength: TEXT_LIMITS.name },
+      description: { type: "string", maxLength: TEXT_LIMITS.characterDescription },
+      specialMove: {
+        type: "object",
+        required: ["name", "type", "power", "mpCost", "ailment", "description"],
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", maxLength: TEXT_LIMITS.name },
+          type: { type: "string", enum: SPECIAL_MOVE_TYPES },
+          power: {
+            type: "integer",
+            minimum: STAT_RANGES.specialPower.min,
+            maximum: STAT_RANGES.specialPower.max,
+          },
+          mpCost: {
+            type: "integer",
+            minimum: STAT_RANGES.specialMpCost.min,
+            maximum: STAT_RANGES.specialMpCost.max,
+          },
+          ailment: { type: "string", enum: AILMENT_CHOICES },
+          description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
         },
-        mpCost: {
-          type: "integer",
-          minimum: STAT_RANGES.specialMpCost.min,
-          maximum: STAT_RANGES.specialMpCost.max,
+      },
+      passive: {
+        type: "object",
+        required: ["id", "name", "description"],
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", enum: passiveCandidates },
+          name: { type: "string", maxLength: TEXT_LIMITS.name },
+          description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
         },
-        ailment: { type: "string", enum: AILMENT_CHOICES },
-        description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
       },
     },
-    passive: {
-      type: "object",
-      required: ["id", "name", "description"],
-      additionalProperties: false,
-      properties: {
-        id: { type: "string", enum: PASSIVE_SKILL_IDS },
-        name: { type: "string", maxLength: TEXT_LIMITS.name },
-        description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
-      },
-    },
-  },
-} as const;
+  } as const;
+}
 
 /**
  * モデル出力のJSON文字列を検証し、GeneratedStats として返します。
+ * @param allowedPassiveIds 抽選済みのパッシブ候補。候補外のidは拒否します
  * @throws CharacterParseError 出力がJSONでない・範囲外・欠落している場合
  */
-export function parseGeneratedStats(raw: string): GeneratedStats {
+export function parseGeneratedStats(
+  raw: string,
+  allowedPassiveIds: readonly PassiveSkillId[],
+): GeneratedStats {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -145,7 +166,7 @@ export function parseGeneratedStats(raw: string): GeneratedStats {
     title: readText(obj, "title"),
     description: readText(obj, "description"),
     specialMove: readSpecialMove(obj),
-    passive: readPassive(obj),
+    passive: readPassive(obj, allowedPassiveIds),
   } satisfies GeneratedStats;
   return stats;
 }
@@ -245,11 +266,17 @@ function readSpecialMove(obj: Record<string, unknown>): GeneratedStats["specialM
   };
 }
 
-/** passive オブジェクトを検証付きで読み取ります。 */
-function readPassive(obj: Record<string, unknown>): PassiveSkill {
+/**
+ * passive オブジェクトを検証付きで読み取ります。
+ * idは抽選済みの候補(allowedPassiveIds)に含まれる値だけを許可します。
+ */
+function readPassive(
+  obj: Record<string, unknown>,
+  allowedPassiveIds: readonly PassiveSkillId[],
+): PassiveSkill {
   const passive = readObject(obj, "passive");
   return {
-    id: readChoice(passive, "id", PASSIVE_SKILL_IDS),
+    id: readChoice(passive, "id", allowedPassiveIds),
     name: readText(passive, "name"),
     description: readText(passive, "description"),
   };

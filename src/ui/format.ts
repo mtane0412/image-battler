@@ -50,6 +50,10 @@ export function describeEvent(
       return `${actor}の はんげき! ${target}に ${event.damage}の ダメージ!`;
     case "endure":
       return `${actor}は こんじょうで もちこたえた!`;
+    case "life-steal":
+      return `${actor}は あいての せいきを すいとった! HPが ${event.healed} かいふく!`;
+    case "regenerate":
+      return `${actor}の きずが しぜんに ふさがる! HPが ${event.healed} かいふく!`;
   }
 }
 

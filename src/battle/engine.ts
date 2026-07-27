@@ -6,18 +6,21 @@
  * - 必殺技はMPを消費し、MPは自分の行動後に一定量回復します
  * - 必殺技はタイプ(attack/heal/ailment/buff)ごとに効果と使用条件が異なります
  * - ステータス異常は毒・麻痺・やけど・凍結の4種で、同時に1つだけ罹患します
- * - パッシブスキル(crit-master/ailment-guard/endure/counter/mp-boost)は
+ * - パッシブスキル(crit-master/ailment-guard/endure/counter/mp-boost/
+ *   life-steal/regenerate/berserk/evasion/first-strike)は
  *   エンジン内の判定に組み込まれています(passive が null のキャラは効果なし)
  *
  * 乱数の消費順(テストと厳密に一致させること):
- * - バトル開始時: 同速の場合のみ[先攻決定]を1回
+ * - バトル開始時: first-strike 持ちが一方だけの場合は消費なし。
+ *   それ以外は同速の場合のみ[先攻決定]を1回
  * - 各アクション:
  *   1. 凍結中: [解凍判定] / 麻痺中: [麻痺判定](行動不能ならここで終了)
  *   2. 必殺技が使用可能な場合: [必殺技判定] → 発動時、
  *      attack / heal / ailment タイプは[威力補正]を1回消費(buff は消費しない)
  *   3. 通常攻撃の場合: [ミス判定] → [クリティカル判定] → [威力補正]
+ *      (相手が evasion 持ちの場合もミス判定の確率が変わるだけで消費順は不変)
  *   4. 通常攻撃が命中し、相手が counter 持ちで生存している場合: [反撃判定]
- *   5. 行動後の毒・やけどダメージとMP回復: 乱数消費なし
+ *   5. life-steal / regenerate の回復、行動後の毒・やけどダメージとMP回復: 乱数消費なし
  */
 import type {
   AilmentType,
@@ -101,6 +104,16 @@ const COUNTER_DAMAGE_FACTOR = 0.3;
 const CRIT_MASTER_MULTIPLIER = 2;
 /** パッシブ mp-boost のMP回復量倍率 */
 const MP_BOOST_MULTIPLIER = 2;
+/** パッシブ life-steal の回復係数(通常攻撃の与ダメージに掛ける) */
+const LIFE_STEAL_RATIO = 0.3;
+/** パッシブ regenerate の行動後回復量(最大HPに掛ける) */
+const REGENERATE_RATIO = 1 / 16;
+/** パッシブ berserk が発動するHP残存率のしきい値 */
+const BERSERK_HP_THRESHOLD = 0.3;
+/** パッシブ berserk 発動中の攻撃力倍率 */
+const BERSERK_ATTACK_MULTIPLIER = 1.5;
+/** パッシブ evasion 持ちが通常攻撃を受けるときのミス発生率 */
+const EVASION_MISS_CHANCE = 0.2;
 
 /** ダメージ計算値を丸め、最低1を保証します。 */
 function toDamage(raw: number): number {
@@ -112,10 +125,17 @@ function hasPassive(state: CombatantState, id: PassiveSkillId): boolean {
   return state.character.passive?.id === id;
 }
 
-/** 強化・やけどを反映した実効攻撃力を返します。 */
+/** 強化・逆境(berserk)・やけどを反映した実効攻撃力を返します。 */
 function effectiveAttack(state: CombatantState): number {
-  const buffed = state.character.attack + state.attackBuff;
-  return state.ailment === "burn" ? buffed * BURN_ATTACK_FACTOR : buffed;
+  let attack = state.character.attack + state.attackBuff;
+  // berserk: HPが30%以下に減っているとき攻撃力が上がります
+  if (
+    hasPassive(state, "berserk") &&
+    state.hp <= state.character.hp * BERSERK_HP_THRESHOLD
+  ) {
+    attack *= BERSERK_ATTACK_MULTIPLIER;
+  }
+  return state.ailment === "burn" ? attack * BURN_ATTACK_FACTOR : attack;
 }
 
 /** 強化を反映した実効防御力を返します。 */
@@ -172,9 +192,18 @@ export function simulateBattle(
   const stateA = createState(first);
   const stateB = createState(second);
 
+  // 先攻決定: first-strike 持ちが一方だけなら素早さに関係なくそのキャラが先攻です
+  // (乱数は消費しません)。両者とも持つ/持たない場合は従来どおり素早さで決め、
+  // 同速のときだけ乱数を1回消費します
+  const firstHasPriority = hasPassive(stateA, "first-strike");
+  const secondHasPriority = hasPassive(stateB, "first-strike");
   let attacker: CombatantState;
   let defender: CombatantState;
-  if (first.speed !== second.speed) {
+  if (firstHasPriority !== secondHasPriority) {
+    [attacker, defender] = firstHasPriority
+      ? [stateA, stateB]
+      : [stateB, stateA];
+  } else if (first.speed !== second.speed) {
     [attacker, defender] =
       first.speed > second.speed ? [stateA, stateB] : [stateB, stateA];
   } else {
@@ -288,7 +317,11 @@ export function simulateBattle(
     }
 
     // --- 3. 通常攻撃 ---
-    if (rng() < MISS_CHANCE) {
+    // 相手が evasion 持ちの場合はミス率が上がります(乱数の消費順は不変)
+    const missChance = hasPassive(opponent, "evasion")
+      ? EVASION_MISS_CHANCE
+      : MISS_CHANCE;
+    if (rng() < missChance) {
       emit(turn, actor, opponent, { type: "miss" });
       return endOfAction(turn, actor);
     }
@@ -308,6 +341,18 @@ export function simulateBattle(
     emit(turn, actor, opponent, { type: "attack", critical, damage });
     if (hit.endured) {
       emit(turn, opponent, opponent, { type: "endure" });
+    }
+    // life-steal: 通常攻撃で与えたダメージの一部を回復します(乱数消費なし)。
+    // とどめの一撃でも回復してからバトル終了の判定に進みます
+    if (hasPassive(actor, "life-steal")) {
+      const healed = Math.min(
+        actor.character.hp - actor.hp,
+        Math.round(damage * LIFE_STEAL_RATIO),
+      );
+      if (healed > 0) {
+        actor.hp += healed;
+        emit(turn, actor, actor, { type: "life-steal", healed });
+      }
     }
     if (hit.knockedOut) {
       return "finished";
@@ -443,6 +488,18 @@ export function simulateBattle(
       }
       if (hit.knockedOut) {
         return "finished";
+      }
+    }
+    // regenerate: 行動後にHPが少し回復します(乱数消費なし)。
+    // 毒・やけどのダメージを受けたあとに回復する順序です
+    if (hasPassive(actor, "regenerate")) {
+      const healed = Math.min(
+        actor.character.hp - actor.hp,
+        Math.round(actor.character.hp * REGENERATE_RATIO),
+      );
+      if (healed > 0) {
+        actor.hp += healed;
+        emit(turn, actor, actor, { type: "regenerate", healed });
       }
     }
     const regen =

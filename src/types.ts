@@ -72,13 +72,23 @@ export interface SpecialMove {
  * - endure: 戦闘不能になるダメージを1回だけHP1で耐える
  * - counter: 通常攻撃を受けたとき一定確率で反撃する
  * - mp-boost: 毎ターンのMP回復量が2倍になる
+ * - life-steal: 通常攻撃で与えたダメージの一部だけHPを回復する
+ * - regenerate: 自分の行動後にHPが少し回復する
+ * - berserk: HPが減っている(30%以下)とき攻撃力が上がる
+ * - evasion: 相手の通常攻撃のミス率が上がる
+ * - first-strike: 素早さに関係なく先攻になる
  */
 export type PassiveSkillId =
   | "crit-master"
   | "ailment-guard"
   | "endure"
   | "counter"
-  | "mp-boost";
+  | "mp-boost"
+  | "life-steal"
+  | "regenerate"
+  | "berserk"
+  | "evasion"
+  | "first-strike";
 
 /** パッシブスキルの種類一覧です(検証・表示で使用します)。 */
 export const PASSIVE_SKILL_IDS = [
@@ -87,7 +97,29 @@ export const PASSIVE_SKILL_IDS = [
   "endure",
   "counter",
   "mp-boost",
+  "life-steal",
+  "regenerate",
+  "berserk",
+  "evasion",
+  "first-strike",
 ] as const satisfies readonly PassiveSkillId[];
+
+/**
+ * パッシブスキルの効果の短い要約です。
+ * キャラクター生成プロンプトの候補提示と、効果の説明表示に共用します。
+ */
+export const PASSIVE_SKILL_SUMMARIES = {
+  "crit-master": "会心の一撃が出やすい",
+  "ailment-guard": "状態異常にならない",
+  endure: "倒れる一撃をHP1で耐える",
+  counter: "攻撃されると反撃する",
+  "mp-boost": "MPの回復が速い",
+  "life-steal": "与えたダメージの一部を吸収して回復する",
+  regenerate: "毎ターンHPが少しずつ回復する",
+  berserk: "HPが減ると攻撃力が上がる",
+  evasion: "相手の攻撃をかわしやすい",
+  "first-strike": "素早さに関係なく先手を取る",
+} as const satisfies Record<PassiveSkillId, string>;
 
 /** パッシブスキルです。効果(id)はエンジン実装済み、名前はAIが付けます。 */
 export interface PassiveSkill {
@@ -237,6 +269,18 @@ export type BattleEventPayload =
     | {
         /** パッシブ「endure」の発動。HP1で耐えた(自己対象) */
         type: "endure";
+      }
+    | {
+        /** パッシブ「life-steal」による通常攻撃後のHP吸収(自己対象) */
+        type: "life-steal";
+        /** 実際に回復した量(最大HPを超えた分は含まない) */
+        healed: number;
+      }
+    | {
+        /** パッシブ「regenerate」による行動後のHP回復(自己対象) */
+        type: "regenerate";
+        /** 実際に回復した量(最大HPを超えた分は含まない) */
+        healed: number;
       }
   );
 

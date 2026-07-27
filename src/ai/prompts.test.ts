@@ -12,20 +12,28 @@ import {
 
 describe("buildCharacterPrompt", () => {
   it("キャラクター名が含まれる", () => {
-    const prompt = buildCharacterPrompt("もふ吉");
+    const prompt = buildCharacterPrompt("もふ吉", ["crit-master", "endure", "counter"]);
     expect(prompt).toContain("もふ吉");
   });
 
-  it("必殺技タイプとパッシブスキルの選択肢が含まれる", () => {
-    const prompt = buildCharacterPrompt("もふ吉");
+  it("必殺技タイプの選択肢が含まれる", () => {
+    const prompt = buildCharacterPrompt("もふ吉", ["crit-master", "endure", "counter"]);
     // 必殺技の4タイプ
     for (const type of ["attack", "heal", "ailment", "buff"]) {
       expect(prompt).toContain(type);
     }
-    // パッシブスキルの5種
-    for (const id of ["crit-master", "ailment-guard", "endure", "counter", "mp-boost"]) {
+  });
+
+  it("パッシブスキルは渡した候補だけが効果の要約付きで含まれる", () => {
+    const prompt = buildCharacterPrompt("もふ吉", ["life-steal", "evasion", "berserk"]);
+    for (const id of ["life-steal", "evasion", "berserk"]) {
       expect(prompt).toContain(id);
     }
+    // 効果の要約(PASSIVE_SKILL_SUMMARIES)も一緒に提示される
+    expect(prompt).toContain("与えたダメージの一部を吸収して回復する");
+    // 候補にないidは提示されない
+    expect(prompt).not.toContain("crit-master");
+    expect(prompt).not.toContain("mp-boost");
   });
 });
 

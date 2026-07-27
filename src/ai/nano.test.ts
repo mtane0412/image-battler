@@ -1,7 +1,7 @@
 /**
  * @file Gemini Nano ラッパー(nano.ts)のテストです。
  * Prompt API(LanguageModel グローバル)をモックし、可用性チェック・
- * キャラクター生成・実況生成の呼び出しを検証します。
+ * キャラクター生成(パッシブ候補の抽選込み)・実況生成の呼び出しを検証します。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,6 +11,7 @@ import {
   generateCharacterStats,
   narrateOnce,
 } from "./nano";
+import { sequenceRng } from "../testing/fixtures";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -36,9 +37,10 @@ function validStatsJson(): string {
       description: "鋭い爪で連続攻撃を繰り出す",
     },
     passive: {
-      id: "counter",
+      // 乱数0の抽選候補(crit-master / ailment-guard / endure)の先頭を選んだ想定
+      id: "crit-master",
       name: "猫の反射神経",
-      description: "攻撃を受けると鋭い爪で反撃する",
+      description: "会心の爪が急所をとらえる",
     },
   });
 }
@@ -83,9 +85,16 @@ describe("generateCharacterStats", () => {
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });
 
-    const stats = await generateCharacterStats(session, "もふ吉", image);
+    // 乱数0を注入すると候補は [crit-master, ailment-guard, endure] になる
+    const stats = await generateCharacterStats(
+      session,
+      "もふ吉",
+      image,
+      sequenceRng([0, 0, 0]),
+    );
 
     expect(stats.title).toBe("深淵の眠り猫");
+    expect(stats.passive.id).toBe("crit-master");
     const [messages, options] = prompt.mock.calls[0] as [
       LanguageModelMessage[],
       LanguageModelPromptOptions,
@@ -94,6 +103,46 @@ describe("generateCharacterStats", () => {
     const content = messages[0]?.content as LanguageModelMessageContent[];
     expect(content.some((c) => c.type === "image")).toBe(true);
     expect(JSON.stringify(messages)).toContain("もふ吉");
+  });
+
+  it("抽選したパッシブ候補がプロンプトとresponseConstraintの両方に反映される", async () => {
+    const prompt = vi.fn().mockResolvedValue(validStatsJson());
+    const session = { prompt } as unknown as LanguageModelSession;
+    const image = new Blob(["dummy"], { type: "image/jpeg" });
+
+    await generateCharacterStats(session, "もふ吉", image, sequenceRng([0, 0, 0]));
+
+    const [messages, options] = prompt.mock.calls[0] as [
+      LanguageModelMessage[],
+      LanguageModelPromptOptions,
+    ];
+    // プロンプトには抽選候補の3種だけが提示され、候補外のidは含まれない
+    const promptText = JSON.stringify(messages);
+    expect(promptText).toContain("crit-master");
+    expect(promptText).toContain("ailment-guard");
+    expect(promptText).toContain("endure");
+    expect(promptText).not.toContain("mp-boost");
+    // JSON Schema の enum も抽選候補に制約される
+    const constraint = options.responseConstraint as {
+      properties: { passive: { properties: { id: { enum: string[] } } } };
+    };
+    expect(constraint.properties.passive.properties.id.enum).toEqual([
+      "crit-master",
+      "ailment-guard",
+      "endure",
+    ]);
+  });
+
+  it("候補にないパッシブidをモデルが返した場合はエラーになる(Fail-Fast)", async () => {
+    // 乱数0.99の抽選候補は [first-strike, evasion, berserk]。
+    // モデル出力(crit-master)は候補外のため拒否される
+    const prompt = vi.fn().mockResolvedValue(validStatsJson());
+    const session = { prompt } as unknown as LanguageModelSession;
+    const image = new Blob(["dummy"], { type: "image/jpeg" });
+
+    await expect(
+      generateCharacterStats(session, "もふ吉", image, sequenceRng([0.99, 0.99, 0.99])),
+    ).rejects.toThrow(/id/);
   });
 });
 

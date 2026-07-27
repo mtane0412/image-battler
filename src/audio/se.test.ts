@@ -170,12 +170,16 @@ describe("seKeyForEvent", () => {
     expect(seKeyForEvent(makeEvent(attackPayload, { turn: 2 }), "special-impact")).toBe("attack2");
   });
 
-  it("スリップダメージ・行動不能・解除・endureは効果音なし(null)になる", () => {
+  it("スリップダメージ・行動不能・解除・endure・パッシブの回復は効果音なし(null)になる", () => {
+    // life-steal / regenerate は毎ターン発生しうる経過イベントのため、
+    // 効果音を鳴らさずログのみで伝える(必殺技音の特別感を保つ)
     const silentPayloads: BattleEventPayload[] = [
       { type: "ailment-damage", ailment: "poison", damage: 13 },
       { type: "ailment-skip", ailment: "paralysis" },
       { type: "ailment-cure", ailment: "freeze" },
       { type: "endure" },
+      { type: "life-steal", healed: 10 },
+      { type: "regenerate", healed: 6 },
     ];
     for (const payload of silentPayloads) {
       expect(seKeyForEvent(makeEvent(payload), "special-impact")).toBeNull();

@@ -3,8 +3,8 @@
  * すべて日本語で生成させます。Gemini Nano は小型モデルのため、
  * 指示は短く具体的にしています。
  */
-import type { AilmentType } from "../types";
-import { AILMENT_LABELS } from "../types";
+import type { AilmentType, PassiveSkillId } from "../types";
+import { AILMENT_LABELS, PASSIVE_SKILL_SUMMARIES } from "../types";
 import { STAT_RANGES } from "./schema";
 
 /** キャラクター生成セッションのシステムプロンプトです。 */
@@ -25,8 +25,18 @@ export const NARRATION_SYSTEM_PROMPT = [
 /**
  * キャラクター生成用のユーザープロンプトを組み立てます。
  * 画像と一緒に送信します。
+ *
+ * パッシブスキルは全種類ではなく、抽選済みの候補(passiveCandidates)だけを
+ * 提示します。Gemini Nano は出力が決定論的で、全種類を提示すると特定の
+ * スキルに選択が偏るためです(候補の抽選は ai/passives.ts)。
  */
-export function buildCharacterPrompt(name: string): string {
+export function buildCharacterPrompt(
+  name: string,
+  passiveCandidates: readonly PassiveSkillId[],
+): string {
+  const passiveChoices = passiveCandidates
+    .map((id) => `${id}(${PASSIVE_SKILL_SUMMARIES[id]})`)
+    .join(" / ");
   return [
     `この画像のキャラクター「${name}」を対戦ゲームのファイターにしてください。`,
     "画像の見た目から連想して、以下を日本語で決めてください。",
@@ -38,7 +48,7 @@ export function buildCharacterPrompt(name: string): string {
     "  - ailment: typeがailmentのときだけ poison(毒)/paralysis(麻痺)/burn(やけど)/freeze(凍結) から選ぶ。それ以外は none",
     `  - name(技名)、power(${STAT_RANGES.specialPower.min}〜${STAT_RANGES.specialPower.max})、mpCost(${STAT_RANGES.specialMpCost.min}〜${STAT_RANGES.specialMpCost.max}。強い技ほど高くする)、description(技の演出説明。30文字以内)`,
     "- passive: パッシブスキル。見た目に一番合うidを選び、キャラ固有のかっこいい名前を付ける。",
-    "  - id: crit-master(会心の一撃が出やすい) / ailment-guard(状態異常にならない) / endure(倒れる一撃をHP1で耐える) / counter(攻撃されると反撃する) / mp-boost(MPの回復が速い)",
+    `  - id: ${passiveChoices}`,
     "  - name(固有名)、description(効果の紹介文。30文字以内)",
   ].join("\n");
 }

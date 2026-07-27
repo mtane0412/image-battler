@@ -8,9 +8,9 @@
  * 実況失敗でゲーム全体を停止しない設計です(README参照)。
  *
  * 実況の対象: 行動イベント(通常攻撃・ミス・必殺技・反撃)のみ実況します。
- * 毎ターン発生しうる状態異常の経過(スリップダメージ・行動不能など)は
- * 実況せず、メカニカルログだけで伝えます(実況生成の待ち時間で
- * テンポが落ちるのを防ぐ明示的な仕様です)。
+ * 毎ターン発生しうる状態異常の経過(スリップダメージ・行動不能など)や
+ * パッシブによる回復(life-steal / regenerate)は実況せず、メカニカルログ
+ * だけで伝えます(実況生成の待ち時間でテンポが落ちるのを防ぐ明示的な仕様です)。
  */
 import type {
   AilmentType,
@@ -300,6 +300,8 @@ export function renderBattle(
         break;
       case "special-heal":
       case "special-buff":
+      case "life-steal":
+      case "regenerate":
         actor.root.classList.add("flash");
         break;
       case "ailment-damage":
@@ -359,7 +361,8 @@ export function renderBattle(
 
 /**
  * 実況対象のイベントを実況プロンプトの素材(NarrationParams)に変換します。
- * 実況しないイベント(状態異常の経過・endure)では null を返します。
+ * 実況しないイベント(状態異常の経過・endure・life-steal・regenerate)では
+ * null を返します。
  */
 function narrationParamsFor(
   event: BattleEvent,
@@ -412,6 +415,8 @@ function narrationParamsFor(
     case "ailment-skip":
     case "ailment-cure":
     case "endure":
+    case "life-steal":
+    case "regenerate":
       return null;
   }
 }

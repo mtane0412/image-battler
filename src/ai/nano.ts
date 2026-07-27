@@ -6,7 +6,8 @@
  * GeminiNanoUnavailableError を投げ、UI側で有効化手順を案内します。
  */
 import type { GeneratedStats } from "../types";
-import { CHARACTER_GENERATION_SCHEMA, parseGeneratedStats } from "./schema";
+import { buildCharacterGenerationSchema, parseGeneratedStats } from "./schema";
+import { samplePassiveCandidates } from "./passives";
 import {
   CHARACTER_SYSTEM_PROMPT,
   NARRATION_SYSTEM_PROMPT,
@@ -83,26 +84,32 @@ export async function createCharacterGenerationSession(
 /**
  * 画像と名前からキャラクターのステータスを生成します。
  * responseConstraint で JSON Schema に制約した出力を検証付きでパースします。
+ *
+ * パッシブスキルはコード側で候補を抽選し、プロンプト・スキーマ・検証の
+ * すべてを候補に制約します(決定論的なモデルによる選択の偏り防止)。
+ * @param rng 候補抽選用の乱数(テストでは決め打ちの列を注入します)
  * @throws CharacterParseError モデル出力が不正な場合(呼び出し側で再生成を促す)
  */
 export async function generateCharacterStats(
   session: LanguageModelSession,
   name: string,
   image: Blob | ImageBitmap,
+  rng: () => number = Math.random,
 ): Promise<GeneratedStats> {
+  const passiveCandidates = samplePassiveCandidates(rng);
   const response = await session.prompt(
     [
       {
         role: "user",
         content: [
-          { type: "text", value: buildCharacterPrompt(name) },
+          { type: "text", value: buildCharacterPrompt(name, passiveCandidates) },
           { type: "image", value: image },
         ],
       },
     ],
-    { responseConstraint: CHARACTER_GENERATION_SCHEMA },
+    { responseConstraint: buildCharacterGenerationSchema(passiveCandidates) },
   );
-  return parseGeneratedStats(response);
+  return parseGeneratedStats(response, passiveCandidates);
 }
 
 /**

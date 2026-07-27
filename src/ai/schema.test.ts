@@ -2,13 +2,17 @@
  * @file Gemini Nano の生成結果パーサー(schema.ts)のテストです。
  * モデル出力のJSON文字列を検証付きで GeneratedStats に変換できること、
  * 不正な出力を Fail-Fast で拒否することを確認します。
+ * パッシブスキルは抽選済みの候補リストに含まれるidだけを許可します。
  */
 import { describe, expect, it } from "vitest";
 import {
-  CHARACTER_GENERATION_SCHEMA,
   CharacterParseError,
+  buildCharacterGenerationSchema,
   parseGeneratedStats,
 } from "./schema";
+
+/** テストで使う抽選済みパッシブ候補です(validPayload の id "counter" を含みます)。 */
+const 許可候補 = ["counter", "endure", "mp-boost"] as const;
 
 /** 正常なモデル出力のサンプルを生成します。 */
 function validPayload(): Record<string, unknown> {
@@ -37,11 +41,11 @@ function validPayload(): Record<string, unknown> {
   };
 }
 
-describe("CHARACTER_GENERATION_SCHEMA", () => {
+describe("buildCharacterGenerationSchema", () => {
   it("自由記述の文字列フィールドすべてにmaxLengthが設定されている", () => {
     // Gemini Nano は小型モデルのため、文字列が長く暴走すると出力上限で
     // JSONが途中で切れてパース失敗になります。スキーマ側で長さを制約します
-    const props = CHARACTER_GENERATION_SCHEMA.properties;
+    const props = buildCharacterGenerationSchema(許可候補).properties;
     expect(props.title.maxLength).toBeGreaterThan(0);
     expect(props.description.maxLength).toBeGreaterThan(0);
     expect(props.specialMove.properties.name.maxLength).toBeGreaterThan(0);
@@ -49,11 +53,24 @@ describe("CHARACTER_GENERATION_SCHEMA", () => {
     expect(props.passive.properties.name.maxLength).toBeGreaterThan(0);
     expect(props.passive.properties.description.maxLength).toBeGreaterThan(0);
   });
+
+  it("パッシブのidは渡した候補だけがenumに制約される", () => {
+    const schema = buildCharacterGenerationSchema(許可候補);
+    expect(schema.properties.passive.properties.id.enum).toEqual([
+      "counter",
+      "endure",
+      "mp-boost",
+    ]);
+  });
+
+  it("候補が空の場合はエラーになる(Fail-Fast)", () => {
+    expect(() => buildCharacterGenerationSchema([])).toThrow(/候補/);
+  });
 });
 
 describe("parseGeneratedStats", () => {
   it("正常なJSON文字列をGeneratedStatsに変換できる", () => {
-    const stats = parseGeneratedStats(JSON.stringify(validPayload()));
+    const stats = parseGeneratedStats(JSON.stringify(validPayload()), 許可候補);
     expect(stats.hp).toBe(100);
     expect(stats.mp).toBe(60);
     expect(stats.title).toBe("深淵の眠り猫");
@@ -69,7 +86,7 @@ describe("parseGeneratedStats", () => {
     // モデルが無関係な ailment 値を返しても、異常タイプ以外では使わないため null にする
     const payload = validPayload();
     (payload.specialMove as Record<string, unknown>).ailment = "poison";
-    const stats = parseGeneratedStats(JSON.stringify(payload));
+    const stats = parseGeneratedStats(JSON.stringify(payload), 許可候補);
     expect(stats.specialMove.ailment).toBeNull();
   });
 
@@ -79,7 +96,7 @@ describe("parseGeneratedStats", () => {
       type: "ailment",
       ailment: "poison",
     });
-    const stats = parseGeneratedStats(JSON.stringify(payload));
+    const stats = parseGeneratedStats(JSON.stringify(payload), 許可候補);
     expect(stats.specialMove.type).toBe("ailment");
     expect(stats.specialMove.ailment).toBe("poison");
   });
@@ -90,7 +107,7 @@ describe("parseGeneratedStats", () => {
       type: "ailment",
       ailment: "none",
     });
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
@@ -98,13 +115,13 @@ describe("parseGeneratedStats", () => {
   it("必殺技のタイプが不正な値(ultimate)の場合を拒否する", () => {
     const payload = validPayload();
     (payload.specialMove as Record<string, unknown>).type = "ultimate";
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
 
   it("JSONとして解釈できない文字列を拒否する", () => {
-    expect(() => parseGeneratedStats("これはJSONではありません")).toThrow(
+    expect(() => parseGeneratedStats("これはJSONではありません", 許可候補)).toThrow(
       CharacterParseError,
     );
   });
@@ -116,37 +133,37 @@ describe("parseGeneratedStats", () => {
     // 末尾の「"}}」を「'}}」に置き換えて実際の壊れ方を再現する
     const corrupted = `${valid.slice(0, -3)}'}}`;
     expect(() => JSON.parse(corrupted)).toThrow();
-    const stats = parseGeneratedStats(corrupted);
+    const stats = parseGeneratedStats(corrupted, 許可候補);
     expect(stats.passive.description).toBe("攻撃を受けると鋭い爪で反撃する");
   });
 
   it("修復しても解釈できない出力は拒否する", () => {
-    expect(() => parseGeneratedStats('{"hp": 100, "mp":')).toThrow(
+    expect(() => parseGeneratedStats('{"hp": 100, "mp":', 許可候補)).toThrow(
       CharacterParseError,
     );
   });
 
   it("範囲外のステータス(hp=999)を拒否する", () => {
     const payload = { ...validPayload(), hp: 999 };
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(/hp/);
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(/hp/);
   });
 
   it("範囲外のMP(mp=999)を拒否する", () => {
     const payload = { ...validPayload(), mp: 999 };
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(/mp/);
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(/mp/);
   });
 
   it("範囲外の消費MP(mpCost=999)を拒否する", () => {
     const payload = validPayload();
     (payload.specialMove as Record<string, unknown>).mpCost = 999;
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
 
   it("整数でないステータス(attack=40.5)を拒否する", () => {
     const payload = { ...validPayload(), attack: 40.5 };
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
@@ -154,7 +171,7 @@ describe("parseGeneratedStats", () => {
   it("必須フィールド(specialMove)の欠落を拒否する", () => {
     const payload = validPayload();
     delete payload.specialMove;
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
@@ -162,7 +179,7 @@ describe("parseGeneratedStats", () => {
   it("必須フィールド(passive)の欠落を拒否する", () => {
     const payload = validPayload();
     delete payload.passive;
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
@@ -170,14 +187,23 @@ describe("parseGeneratedStats", () => {
   it("パッシブのidが不正な値(super-power)の場合を拒否する", () => {
     const payload = validPayload();
     (payload.passive as Record<string, unknown>).id = "super-power";
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
+      CharacterParseError,
+    );
+  });
+
+  it("定義済みでも候補にないパッシブid(crit-master)を拒否する", () => {
+    // 抽選した候補の外から選ばれた場合は補正せずエラーにする(Fail-Fast)
+    const payload = validPayload();
+    (payload.passive as Record<string, unknown>).id = "crit-master";
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
 
   it("空文字のtitleを拒否する", () => {
     const payload = { ...validPayload(), title: "   " };
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
@@ -185,7 +211,7 @@ describe("parseGeneratedStats", () => {
   it("必殺技の威力が範囲外(power=200)の場合を拒否する", () => {
     const payload = validPayload();
     (payload.specialMove as Record<string, unknown>).power = 200;
-    expect(() => parseGeneratedStats(JSON.stringify(payload))).toThrow(
+    expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
   });
