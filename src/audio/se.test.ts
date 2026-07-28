@@ -206,7 +206,9 @@ describe("createSePlayer", () => {
     src: string;
     volume = 1;
     preload = "";
+    loop = false;
     playCallCount = 0;
+    pauseCallCount = 0;
     /** cloneNode で複製されたインスタンス(多重再生の検証用) */
     clones: FakeAudio[] = [];
     /** play() が返すPromise(失敗させたいテストで差し替える) */
@@ -219,6 +221,10 @@ describe("createSePlayer", () => {
     play(): Promise<void> {
       this.playCallCount += 1;
       return this.playResult;
+    }
+
+    pause(): void {
+      this.pauseCallCount += 1;
     }
 
     cloneNode(): FakeAudio {
@@ -298,5 +304,46 @@ describe("createSePlayer", () => {
     const { player, created } = makePlayer();
     player.play("start");
     expect(created).toHaveLength(0);
+  });
+
+  it("playLoopでループ再生を開始し、返された停止関数で止められる", () => {
+    const { player, created } = makePlayer();
+    const stop = player.playLoop("message");
+    const audio = created[0];
+    if (audio === undefined) throw new Error("Audioが生成されていません");
+    // 再生は複製に対して行い、ループ設定と音量が反映されている
+    const clone = audio.clones[0];
+    if (clone === undefined) throw new Error("再生用の複製が生成されていません");
+    expect(clone.loop).toBe(true);
+    expect(clone.volume).toBe(SE_VOLUME);
+    expect(clone.playCallCount).toBe(1);
+    expect(clone.pauseCallCount).toBe(0);
+    stop();
+    expect(clone.pauseCallCount).toBe(1);
+  });
+
+  it("playLoopはタブが非表示のときは再生せず、停止関数も安全に呼べる", () => {
+    Object.defineProperty(document, "hidden", { value: true, configurable: true });
+    const { player, created } = makePlayer();
+    const stop = player.playLoop("message");
+    expect(created).toHaveLength(0);
+    expect(() => {
+      stop();
+    }).not.toThrow();
+  });
+
+  it("playLoopで再生に失敗しても例外を投げず、警告ログに明示する", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const player = createSePlayer((url) => {
+      const audio = new FakeAudio(url);
+      audio.playResult = Promise.reject(new Error("自動再生がブロックされました"));
+      return audio as unknown as HTMLAudioElement;
+    });
+    expect(() => {
+      player.playLoop("message");
+    }).not.toThrow();
+    // 非同期のcatchが実行されるのを待つ
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(warnSpy).toHaveBeenCalledOnce();
   });
 });
