@@ -176,8 +176,8 @@ describe("buildStoryPrompt", () => {
   };
   const ingredients = { stage: "満月の廃神殿", relation: "宿命のライバル" };
 
-  it("両者の名前・二つ名・紹介文が含まれる", () => {
-    const prompt = buildStoryPrompt(mofukichi, gabuta, ingredients);
+  it("1v1では両者の名前・二つ名・紹介文が含まれる", () => {
+    const prompt = buildStoryPrompt([mofukichi], [gabuta], ingredients);
     expect(prompt).toContain("もふ吉");
     expect(prompt).toContain("深淵の眠り猫");
     expect(prompt).toContain("よく寝る猫の戦士です");
@@ -187,15 +187,39 @@ describe("buildStoryPrompt", () => {
   });
 
   it("抽選した舞台と因縁が含まれる", () => {
-    const prompt = buildStoryPrompt(mofukichi, gabuta, ingredients);
+    const prompt = buildStoryPrompt([mofukichi], [gabuta], ingredients);
     expect(prompt).toContain("満月の廃神殿");
     expect(prompt).toContain("宿命のライバル");
   });
 
   it("勝敗のネタバレを禁止する指示が含まれる", () => {
     // 前口上はバトル再生前に表示するため、結末を書かせない指示が必要
-    const prompt = buildStoryPrompt(mofukichi, gabuta, ingredients);
+    const prompt = buildStoryPrompt([mofukichi], [gabuta], ingredients);
     expect(prompt).toContain("勝敗");
+  });
+
+  it("2v2では4体全員の名前と紹介文が含まれ、タッグバトルであることが伝わる", () => {
+    const piyosuke = {
+      name: "ぴよ助",
+      title: "疾風のひよこ",
+      description: "すばしっこいひよこの剣士です",
+    };
+    const kuromaru = {
+      name: "くろ丸",
+      title: "漆黒の甲羅",
+      description: "守りの固い亀の重戦士です",
+    };
+    const prompt = buildStoryPrompt(
+      [mofukichi, piyosuke],
+      [gabuta, kuromaru],
+      ingredients,
+    );
+    for (const name of ["もふ吉", "ぴよ助", "がぶ太", "くろ丸"]) {
+      expect(prompt).toContain(name);
+    }
+    expect(prompt).toContain("すばしっこいひよこの剣士です");
+    expect(prompt).toContain("守りの固い亀の重戦士です");
+    expect(prompt).toContain("2対2");
   });
 });
 
@@ -281,12 +305,29 @@ describe("buildVictorySpeechPrompt / buildDefeatSpeechPrompt", () => {
 describe("buildIntroPrompt / buildResultPrompt", () => {
   it("開始実況には両者の名前と二つ名が含まれる", () => {
     const prompt = buildIntroPrompt(
-      { name: "もふ吉", title: "深淵の眠り猫" },
-      { name: "がぶ太", title: "鋼鉄の甘噛み犬" },
+      [{ name: "もふ吉", title: "深淵の眠り猫" }],
+      [{ name: "がぶ太", title: "鋼鉄の甘噛み犬" }],
     );
     expect(prompt).toContain("もふ吉");
     expect(prompt).toContain("がぶ太");
     expect(prompt).toContain("深淵の眠り猫");
+  });
+
+  it("2v2の開始実況には4体全員の名前が含まれ、タッグバトルであることが伝わる", () => {
+    const prompt = buildIntroPrompt(
+      [
+        { name: "もふ吉", title: "深淵の眠り猫" },
+        { name: "ぴよ助", title: "疾風のひよこ" },
+      ],
+      [
+        { name: "がぶ太", title: "鋼鉄の甘噛み犬" },
+        { name: "くろ丸", title: "漆黒の甲羅" },
+      ],
+    );
+    for (const name of ["もふ吉", "ぴよ助", "がぶ太", "くろ丸"]) {
+      expect(prompt).toContain(name);
+    }
+    expect(prompt).toContain("2対2");
   });
 
   it("結果実況には勝者と敗者の名前が含まれる", () => {

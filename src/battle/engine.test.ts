@@ -14,7 +14,7 @@
  *   5. 行動後の毒・やけどダメージとMP回復: 乱数消費なし
  */
 import { describe, expect, it } from "vitest";
-import { simulateBattle } from "./engine";
+import { simulateBattle, simulateTeamBattle } from "./engine";
 import {
   makeCharacter,
   makePassive,
@@ -800,5 +800,257 @@ describe("simulateBattle: 決着", () => {
       ailment: "poison",
       after: { b: { hp: 0 } },
     });
+  });
+});
+
+/**
+ * 2v2(チーム戦)の乱数の消費順(実装と厳密に一致させること):
+ * - バトル開始時: 行動順を1回だけ決定します。first-strike 持ち優先 → 素早さ降順。
+ *   優先度も素早さも同じキャラクター同士のグループ内だけ[順序決定]の乱数を消費します
+ *   (2体のグループは1回。0.5未満で元の並び=引数順が維持されます)
+ * - 各アクション(倒れたキャラクターの枠はスキップし、乱数もターン番号も消費しません):
+ *   1. 凍結・麻痺の判定(1v1と同じ)
+ *   2. 必殺技判定 → 発動時、attack/ailment タイプは[対象選択]
+ *      (生存する対象候補が2体以上のときのみ1回)→ [威力補正]
+ *   3. 通常攻撃: [対象選択](生存する相手が2体以上のときのみ1回)→
+ *      [ミス判定] → [クリティカル判定] → [威力補正]
+ *   4. 反撃判定(1v1と同じ。反撃対象は攻撃してきたキャラクター)
+ */
+describe("simulateTeamBattle: 2v2の行動順と対象選択", () => {
+  /** 全員が通常攻撃だけを行う(MP0)、素早さの異なる4体を作ります。 */
+  function makeSquads() {
+    const 韋駄天 = makeCharacter({ id: "a1", name: "韋駄天", hp: 300, attack: 40, defense: 20, mp: 0, speed: 90 });
+    const 中堅 = makeCharacter({ id: "a2", name: "中堅", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 副将 = makeCharacter({ id: "b1", name: "副将", hp: 300, attack: 40, defense: 20, mp: 0, speed: 70 });
+    const 鈍足 = makeCharacter({ id: "b2", name: "鈍足", hp: 300, attack: 40, defense: 20, mp: 0, speed: 30 });
+    return { 韋駄天, 中堅, 副将, 鈍足 };
+  }
+
+  it("素早さ降順に4体全員が1ラウンドに1回ずつ行動し、afterには全員のスナップショットが入る", () => {
+    const { 韋駄天, 中堅, 副将, 鈍足 } = makeSquads();
+    // 各通常攻撃の乱数は[対象選択, ミス, クリティカル, 威力補正]の4回。
+    // 対象選択0は生存する相手のうち1体目(チーム配列順)を指す
+    const result = simulateTeamBattle(
+      [韋駄天, 中堅],
+      [副将, 鈍足],
+      sequenceRng([
+        0, 0.5, 0.5, 0.5, // a1(速90): b1へ32ダメージ
+        0, 0.5, 0.5, 0.5, // b1(速70): a1へ32ダメージ
+        0, 0.5, 0.5, 0.5, // a2(速50): b1へ32ダメージ
+        0, 0.5, 0.5, 0.5, // b2(速30): a1へ32ダメージ
+      ]),
+    );
+    expect(
+      result.events.slice(0, 4).map((e) => [e.actorId, e.targetId, e.turn]),
+    ).toEqual([
+      ["a1", "b1", 1],
+      ["b1", "a1", 2],
+      ["a2", "b1", 3],
+      ["b2", "a1", 4],
+    ]);
+    expect(result.events[0]?.after).toMatchObject({
+      a1: { hp: 300 },
+      a2: { hp: 300 },
+      b1: { hp: 268 },
+      b2: { hp: 300 },
+    });
+  });
+
+  it("対象選択の乱数0.5で生存する相手のうち2体目が対象になる", () => {
+    const { 韋駄天, 中堅, 副将, 鈍足 } = makeSquads();
+    // floor(0.5 * 2) = 1 → 相手チームの2体目(b2)
+    const result = simulateTeamBattle(
+      [韋駄天, 中堅],
+      [副将, 鈍足],
+      sequenceRng([0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({ actorId: "a1", targetId: "b2" });
+  });
+
+  it("生存する相手が1体だけのときは対象選択の乱数を消費しない", () => {
+    // a1がb1を一撃で倒す: 400 * 1.0 - 20 * 0.4 = 392ダメージ ≥ HP100
+    const 豪傑 = makeCharacter({ id: "a1", hp: 300, attack: 400, defense: 20, mp: 0, speed: 90 });
+    const 中堅 = makeCharacter({ id: "a2", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 紙装甲 = makeCharacter({ id: "b1", hp: 100, attack: 40, defense: 20, mp: 0, speed: 70 });
+    const 鈍足 = makeCharacter({ id: "b2", hp: 300, attack: 40, defense: 20, mp: 0, speed: 30 });
+    // a1: [対象0→b1, ミス, クリ, 補正] → b1戦闘不能。
+    // b1の枠はスキップされ(乱数・ターン番号を消費しない)、
+    // a2の相手はb2だけ → 対象選択の乱数なしで先頭の0.01がミス判定に使われミスになる
+    const result = simulateTeamBattle(
+      [豪傑, 中堅],
+      [紙装甲, 鈍足],
+      sequenceRng([0, 0.5, 0.5, 0.5, 0.01]),
+    );
+    expect(result.events[0]).toMatchObject({
+      actorId: "a1",
+      targetId: "b1",
+      after: { b1: { hp: 0 } },
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "miss",
+      actorId: "a2",
+      targetId: "b2",
+      turn: 2,
+    });
+  });
+
+  it("同速のキャラクター同士だけ順序決定の乱数を消費する(0.5未満で第1チーム側が先)", () => {
+    // a2とb1が同速50。0.4(<0.5)なら並びが維持されa2が先、0.6ならb1が先になる
+    const 韋駄天 = makeCharacter({ id: "a1", hp: 300, attack: 40, defense: 20, mp: 0, speed: 90 });
+    const 中堅 = makeCharacter({ id: "a2", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 同速 = makeCharacter({ id: "b1", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 鈍足 = makeCharacter({ id: "b2", hp: 300, attack: 40, defense: 20, mp: 0, speed: 30 });
+    const keep = simulateTeamBattle([韋駄天, 中堅], [同速, 鈍足], sequenceRng([0.4]));
+    expect(keep.events[0]?.actorId).toBe("a1");
+    expect(keep.events[1]?.actorId).toBe("a2");
+    const swap = simulateTeamBattle([韋駄天, 中堅], [同速, 鈍足], sequenceRng([0.6]));
+    expect(swap.events[1]?.actorId).toBe("b1");
+  });
+
+  it("first-strike 持ちは2v2でも素早さに関係なく先に行動する", () => {
+    const 韋駄天 = makeCharacter({ id: "a1", hp: 300, attack: 40, defense: 20, mp: 0, speed: 90 });
+    const 中堅 = makeCharacter({ id: "a2", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 副将 = makeCharacter({ id: "b1", hp: 300, attack: 40, defense: 20, mp: 0, speed: 70 });
+    const 先制役 = makeCharacter({
+      id: "b2",
+      hp: 300,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("first-strike"),
+    });
+    // 先制役(速30)が最初に行動する。対象0 → 相手チーム1体目のa1
+    const result = simulateTeamBattle(
+      [韋駄天, 中堅],
+      [副将, 先制役],
+      sequenceRng([0, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({ actorId: "b2", targetId: "a1" });
+  });
+
+  it("異常技の対象候補は「異常でなく ailment-guard でもない生存者」に限られ、候補1体なら乱数を消費しない", () => {
+    const 仕掛け役 = makeCharacter({
+      id: "a1",
+      hp: 300,
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "毒きり", type: "ailment", power: 50, ailment: "poison" }),
+    });
+    const 中堅 = makeCharacter({ id: "a2", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 守り手 = makeCharacter({
+      id: "b1",
+      hp: 300,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 70,
+      passive: makePassive("ailment-guard"),
+    });
+    const 鈍足 = makeCharacter({ id: "b2", hp: 300, attack: 40, defense: 20, mp: 0, speed: 30 });
+    const result = simulateTeamBattle(
+      [仕掛け役, 中堅],
+      [守り手, 鈍足],
+      sequenceRng([
+        0.1, 0.5, // a1: 必殺技判定 → 候補はb2のみ(b1はguard)なので対象乱数なし → 威力補正
+        0, 0.5, 0.5, 0.5, // b1: a1へ通常攻撃
+        0, 0.5, 0.5, 0.5, // a2: b1へ通常攻撃
+        0, 0.5, 0.5, 0.5, // b2: a1へ通常攻撃 → 行動後に毒ダメージ
+        0.01, 0.5, 0.5, 0.5, // 2巡目のa1: b1もguard・b2も毒 → 必殺技判定なしで通常攻撃(対象0.01→b1)
+      ]),
+    );
+    // round(50 * 0.3 * 1.0) = 15ダメージ + 毒
+    expect(result.events[0]).toMatchObject({
+      type: "special-ailment",
+      actorId: "a1",
+      targetId: "b2",
+      damage: 15,
+      after: { b2: { hp: 285, ailment: "poison" } },
+    });
+    // b2は行動後に round(300 / 8) = 38 の毒ダメージを受ける
+    expect(result.events[4]).toMatchObject({
+      type: "ailment-damage",
+      ailment: "poison",
+      actorId: "b2",
+      after: { b2: { hp: 247 } },
+    });
+    // 2巡目のa1は対象候補ゼロのため必殺技判定自体が行われない
+    // (判定があれば先頭の0.01(<0.4)で必殺技が発動してしまう)
+    expect(result.events[5]).toMatchObject({ type: "attack", actorId: "a1", targetId: "b1" });
+  });
+});
+
+describe("simulateTeamBattle: 2v2の決着", () => {
+  it("相手チームの全員を倒すと決着し、倒れたキャラクターは行動しない", () => {
+    const 豪傑 = makeCharacter({ id: "a1", hp: 300, attack: 400, defense: 20, mp: 0, speed: 90 });
+    const 剛腕 = makeCharacter({ id: "a2", hp: 300, attack: 400, defense: 20, mp: 0, speed: 50 });
+    const 紙装甲 = makeCharacter({ id: "b1", hp: 100, attack: 40, defense: 20, mp: 0, speed: 70 });
+    const 薄氷 = makeCharacter({ id: "b2", hp: 100, attack: 40, defense: 20, mp: 0, speed: 30 });
+    // a1がb1を、a2がb2を一撃で倒し、b1・b2は一度も行動できずに決着する
+    const result = simulateTeamBattle(
+      [豪傑, 剛腕],
+      [紙装甲, 薄氷],
+      sequenceRng([0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.winner).toBe("first");
+    expect(result.events).toHaveLength(2);
+    expect(result.events[1]).toMatchObject({
+      actorId: "a2",
+      targetId: "b2",
+      after: { b1: { hp: 0 }, b2: { hp: 0 } },
+    });
+  });
+
+  it("50ラウンド(2v2では200アクション)で決着しない場合、チームの平均HP残存率が高い方が勝つ", () => {
+    // 攻撃20 vs 防御50 → 毎回最低保証の1ダメージ。対象選択は常に0.5(=2体目)なので
+    // 第1チームはb2を、第2チームはa2を100回ずつ攻撃する
+    const a1 = makeCharacter({ id: "a1", hp: 300, attack: 20, defense: 50, mp: 0, speed: 90 });
+    const a2 = makeCharacter({ id: "a2", hp: 300, attack: 20, defense: 50, mp: 0, speed: 50 });
+    const b1 = makeCharacter({ id: "b1", hp: 300, attack: 20, defense: 50, mp: 0, speed: 70 });
+    const b2 = makeCharacter({ id: "b2", hp: 200, attack: 20, defense: 50, mp: 0, speed: 30 });
+    // 第1チーム: (300/300 + 200/300) / 2 ≈ 0.833、第2チーム: (300/300 + 100/200) / 2 = 0.75
+    const result = simulateTeamBattle([a1, a2], [b1, b2], sequenceRng([]));
+    expect(result.events).toHaveLength(200);
+    expect(result.winner).toBe("first");
+  });
+
+  it("50ラウンドで決着せず平均HP残存率も同じ場合は引き分けになる", () => {
+    const a1 = makeCharacter({ id: "a1", hp: 300, attack: 20, defense: 50, mp: 0, speed: 90 });
+    const a2 = makeCharacter({ id: "a2", hp: 300, attack: 20, defense: 50, mp: 0, speed: 50 });
+    const b1 = makeCharacter({ id: "b1", hp: 300, attack: 20, defense: 50, mp: 0, speed: 70 });
+    const b2 = makeCharacter({ id: "b2", hp: 300, attack: 20, defense: 50, mp: 0, speed: 30 });
+    const result = simulateTeamBattle([a1, a2], [b1, b2], sequenceRng([]));
+    expect(result.winner).toBeNull();
+  });
+});
+
+describe("simulateTeamBattle: 入力検証", () => {
+  it("チームをまたいでキャラクターIDが重複する場合はエラーになる(Fail-Fast)", () => {
+    const 重複1 = makeCharacter({ id: "same-id", mp: 0 });
+    const 味方 = makeCharacter({ id: "ally", mp: 0 });
+    const 重複2 = makeCharacter({ id: "same-id", mp: 0 });
+    const 敵 = makeCharacter({ id: "enemy", mp: 0 });
+    expect(() =>
+      simulateTeamBattle([重複1, 味方], [重複2, 敵], sequenceRng([])),
+    ).toThrow(/同一/);
+  });
+
+  it("同じチーム内でキャラクターIDが重複する場合もエラーになる(Fail-Fast)", () => {
+    const 重複1 = makeCharacter({ id: "same-id", mp: 0 });
+    const 重複2 = makeCharacter({ id: "same-id", mp: 0 });
+    const 敵1 = makeCharacter({ id: "enemy-1", mp: 0 });
+    const 敵2 = makeCharacter({ id: "enemy-2", mp: 0 });
+    expect(() =>
+      simulateTeamBattle([重複1, 重複2], [敵1, 敵2], sequenceRng([])),
+    ).toThrow(/同一/);
+  });
+
+  it("空のチームはエラーになる(Fail-Fast)", () => {
+    const 敵 = makeCharacter({ id: "enemy", mp: 0 });
+    expect(() => simulateTeamBattle([], [敵], sequenceRng([]))).toThrow(
+      /1体以上/,
+    );
   });
 });
