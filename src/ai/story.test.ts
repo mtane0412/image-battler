@@ -36,4 +36,19 @@ describe("sampleStoryIngredients", () => {
   it("乱数が範囲[0, 1)外の値を返した場合はエラーになる(Fail-Fast)", () => {
     expect(() => sampleStoryIngredients(sequenceRng([1.5]))).toThrow(/乱数/);
   });
+
+  it("ステージ選択時はstageだけ上書きされ、relationは通常どおり抽選される", () => {
+    // ステージ選択時も乱数は舞台→因縁の順に2回消費し、抽選結果のstageを
+    // 明示的なステージ名で上書きするだけにする(消費順を変えないため)
+    const ingredients = sampleStoryIngredients(sequenceRng([0, 0]), {
+      stage: "灼熱の闘技場",
+    });
+    expect(ingredients.stage).toBe("灼熱の闘技場");
+    expect(ingredients.relation).toBe(STORY_RELATIONS[0]);
+  });
+
+  it("overrideを渡さない場合は通常どおり舞台一覧から抽選される", () => {
+    const ingredients = sampleStoryIngredients(sequenceRng([0, 0]), {});
+    expect(ingredients.stage).toBe(STORY_STAGES[0]);
+  });
 });

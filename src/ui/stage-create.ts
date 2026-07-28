@@ -1,38 +1,40 @@
 /**
- * @file キャラクター作成画面です。画像アップロード + 名前入力から
- * Gemini Nano がステータス・必殺技を生成し、localStorage に保存します。
+ * @file ステージ作成画面です。画像アップロード + 名前入力から
+ * Gemini Nano がステージ特性・特殊イベントを生成し、localStorage に保存します。
+ * キャラクター作成画面(create.ts)と対称の構造です。
  *
  * IMEに関する注意: 名前入力のEnter確定はフォームのネイティブsubmitに任せており、
  * onKeyDownでEnterを検知していないため、IME変換確定で誤送信されることはありません。
  */
-import type { Character, GeneratedStats } from "../types";
+import type { GeneratedStage, Stage } from "../types";
 import {
   GeminiNanoUnavailableError,
-  createCharacterGenerationSession,
-  generateCharacterStats,
+  createStageGenerationSession,
+  generateStageStats,
 } from "../ai/nano";
-import { CharacterParseError } from "../ai/schema";
-import { StorageError, saveCharacter } from "../storage/repository";
-import { characterCard } from "./card";
+import { StageParseError } from "../ai/schema";
+import { StorageError } from "../storage/repository";
+import { saveStage } from "../storage/stage-repository";
+import { stageCard } from "./card";
 import { el } from "./dom";
 import { createImageDropZone, showModelDownloadNotice } from "./image-upload";
 import type { AppContext } from "./navigation";
 
-/** キャラクター名の最大文字数です。 */
+/** ステージ名の最大文字数です。 */
 const NAME_MAX_LENGTH = 12;
 
-/** キャラクター作成画面を描画します。 */
-export function renderCreate(ctx: AppContext): HTMLElement {
+/** ステージ作成画面を描画します。 */
+export function renderStageCreate(ctx: AppContext): HTMLElement {
   const screen = el("section", { className: "screen" });
 
   // 画面ローカルの状態です
   let selectedFile: File | null = null;
   let previewDataUrl: string | null = null;
-  let generated: GeneratedStats | null = null;
+  let generated: GeneratedStage | null = null;
 
   screen.append(
     el("div", { className: "section-head" }, [
-      el("h2", { className: "section-title", text: "ファイターをつくる" }),
+      el("h2", { className: "section-title", text: "ステージをつくる" }),
       backButton(),
     ]),
   );
@@ -42,12 +44,12 @@ export function renderCreate(ctx: AppContext): HTMLElement {
   screen.append(noticeArea);
   void showModelDownloadNotice(
     noticeArea,
-    "初回はAIモデル(Gemini Nano・数GB)のダウンロードが必要です。「ファイターを生成する」を押すと自動でダウンロードが始まります(Wi-Fi推奨)。",
+    "初回はAIモデル(Gemini Nano・数GB)のダウンロードが必要です。「ステージを生成する」を押すと自動でダウンロードが始まります(Wi-Fi推奨)。",
   );
 
   // --- 入力フォーム ---
   const imageDropZone = createImageDropZone({
-    inputId: "fighter-image",
+    inputId: "stage-image",
     placeholder: "ここに画像をドロップ / クリックして選択",
     previewAlt: "選択した画像のプレビュー",
     onAccepted(file, previewDataUrlValue) {
@@ -64,9 +66,9 @@ export function renderCreate(ctx: AppContext): HTMLElement {
     className: "text-input",
     attrs: {
       type: "text",
-      id: "fighter-name",
+      id: "stage-name",
       maxlength: String(NAME_MAX_LENGTH),
-      placeholder: "例: もふ吉",
+      placeholder: "例: 灼熱の闘技場",
       autocomplete: "off",
     },
   });
@@ -78,14 +80,14 @@ export function renderCreate(ctx: AppContext): HTMLElement {
   const errorArea = el("div");
   const submitButton = el("button", {
     className: "btn btn-primary btn-large",
-    text: "ファイターを生成する",
+    text: "ステージを生成する",
     attrs: { type: "submit" },
   });
 
   const form = el("form", { className: "create-form" }, [
     imageDropZone.root,
     el("div", { className: "form-field" }, [
-      el("label", { text: "なまえ(12文字まで)", attrs: { for: "fighter-name" } }),
+      el("label", { text: "なまえ(12文字まで)", attrs: { for: "stage-name" } }),
       nameInput,
     ]),
     statusArea,
@@ -103,7 +105,7 @@ export function renderCreate(ctx: AppContext): HTMLElement {
     void generate();
   });
 
-  /** Gemini Nano でステータスを生成します。 */
+  /** Gemini Nano でステージ特性・特殊イベントを生成します。 */
   async function generate(): Promise<void> {
     clearError();
     const name = nameInput.value.trim();
@@ -121,14 +123,14 @@ export function renderCreate(ctx: AppContext): HTMLElement {
     generated = null;
     try {
       statusArea.textContent = "Gemini Nano を準備しています…";
-      const session = await createCharacterGenerationSession((ratio) => {
+      const session = await createStageGenerationSession((ratio) => {
         statusArea.textContent = `AIモデルをダウンロード中… ${Math.round(ratio * 100)}%(初回のみ)`;
       });
       // モデルの準備が完了したので、初回ダウンロードの案内を消します
       noticeArea.replaceChildren();
       try {
-        statusArea.textContent = "AIが画像から戦闘力を算出しています…";
-        generated = await generateCharacterStats(session, name, selectedFile);
+        statusArea.textContent = "AIがステージの特徴を分析しています…";
+        generated = await generateStageStats(session, name, selectedFile);
       } finally {
         session.destroy();
       }
@@ -143,26 +145,26 @@ export function renderCreate(ctx: AppContext): HTMLElement {
   }
 
   /** 生成結果カードと保存ボタンを表示します。 */
-  function renderResult(name: string, stats: GeneratedStats): void {
+  function renderResult(name: string, stage: GeneratedStage): void {
     if (previewDataUrl === null) {
       return;
     }
     const imageDataUrl = previewDataUrl;
     const saveButton = el("button", {
       className: "btn btn-primary",
-      text: "このファイターを保存する",
+      text: "このステージを保存する",
       attrs: { type: "button" },
     });
     saveButton.addEventListener("click", () => {
-      const character: Character = {
+      const saved: Stage = {
         id: crypto.randomUUID(),
         name,
         imageDataUrl,
         createdAt: new Date().toISOString(),
-        ...stats,
+        ...stage,
       };
       try {
-        saveCharacter(character);
+        saveStage(saved);
         ctx.navigate({ name: "home" });
       } catch (error) {
         showError(
@@ -182,8 +184,8 @@ export function renderCreate(ctx: AppContext): HTMLElement {
     });
 
     resultArea.replaceChildren(
-      el("p", { className: "result-lead", text: "ファイターが誕生しました!" }),
-      characterCard({ ...stats, name, imageDataUrl }),
+      el("p", { className: "result-lead", text: "ステージが誕生しました!" }),
+      stageCard({ ...stage, name, imageDataUrl }),
       el("div", { className: "result-actions" }, [saveButton, retryButton]),
     );
     resultArea.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -197,9 +199,9 @@ export function renderCreate(ctx: AppContext): HTMLElement {
       );
       return;
     }
-    if (error instanceof CharacterParseError) {
+    if (error instanceof StageParseError) {
       showError(
-        `AIの出力が不正でした(${error.message})。もう一度「ファイターを生成する」を押してください。`,
+        `AIの出力が不正でした(${error.message})。もう一度「ステージを生成する」を押してください。`,
       );
       return;
     }
@@ -210,7 +212,7 @@ export function renderCreate(ctx: AppContext): HTMLElement {
     submitButton.disabled = busy;
     nameInput.disabled = busy;
     imageDropZone.setDisabled(busy);
-    submitButton.textContent = busy ? "生成中…" : "ファイターを生成する";
+    submitButton.textContent = busy ? "生成中…" : "ステージを生成する";
   }
 
   function showError(message: string): void {

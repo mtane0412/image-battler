@@ -162,6 +162,84 @@ describe("describeEvent", () => {
     expect(text).toContain("6");
   });
 
+  it("ステージダメージ(告知あり)はステージ効果名とダメージを含む", () => {
+    const text = describeEvent(
+      makeEvent({
+        type: "stage-damage",
+        eventId: "damage",
+        eventName: "隕石落とし",
+        announce: true,
+        damage: 20,
+      }),
+      names,
+    );
+    expect(text).toContain("隕石落とし");
+    expect(text).toContain("もふ吉");
+    expect(text).toContain("20");
+  });
+
+  it("ステージダメージ(告知なし)はステージ効果名を繰り返さない", () => {
+    const text = describeEvent(
+      makeEvent({
+        type: "stage-damage",
+        eventId: "damage",
+        eventName: "隕石落とし",
+        announce: false,
+        damage: 20,
+      }),
+      names,
+    );
+    expect(text).not.toContain("隕石落とし");
+    expect(text).toContain("もふ吉");
+    expect(text).toContain("20");
+  });
+
+  it("ステージ回復は「かいふく」と回復量を含む", () => {
+    const text = describeEvent(
+      makeEvent({
+        type: "stage-heal",
+        eventId: "heal",
+        eventName: "いやしの泉",
+        announce: true,
+        healed: 20,
+      }),
+      names,
+    );
+    expect(text).toContain("いやしの泉");
+    expect(text).toContain("かいふく");
+    expect(text).toContain("20");
+  });
+
+  it("ステージMP回復はMPと回復量を含む", () => {
+    const text = describeEvent(
+      makeEvent({
+        type: "stage-mp",
+        eventId: "mana-restore",
+        eventName: "魔力の奔流",
+        announce: false,
+        restored: 30,
+      }),
+      names,
+    );
+    expect(text).toContain("MP");
+    expect(text).toContain("30");
+  });
+
+  it("ステージ状態異常は「やけど」を含む", () => {
+    const text = describeEvent(
+      makeEvent({
+        type: "stage-ailment",
+        eventId: "ailment",
+        eventName: "瘴気だまり",
+        announce: true,
+        ailment: "burn",
+      }),
+      names,
+    );
+    expect(text).toContain("瘴気だまり");
+    expect(text).toContain("やけど");
+  });
+
   it("対応表にないIDのイベントはエラーになる(Fail-Fast)", () => {
     const event = makeEvent({ type: "miss" });
     expect(() => describeEvent(event, { a: "もふ吉" })).toThrow(/がみつかりません/);

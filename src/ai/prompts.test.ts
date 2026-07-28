@@ -13,6 +13,7 @@ import {
   buildRoyaleResultPrompt,
   buildRoyaleStoryPrompt,
   buildSpecialMoveSpeechPrompt,
+  buildStagePrompt,
   buildStoryPrompt,
   buildVictorySpeechPrompt,
   formatOpponentsLabel,
@@ -42,6 +43,47 @@ describe("buildCharacterPrompt", () => {
     // 候補にないidは提示されない
     expect(prompt).not.toContain("crit-master");
     expect(prompt).not.toContain("mp-boost");
+  });
+});
+
+describe("buildStagePrompt", () => {
+  it("ステージ名が含まれる", () => {
+    const prompt = buildStagePrompt("灼熱の闘技場", ["attack-up", "damage-cut"], [
+      "damage",
+      "heal",
+    ]);
+    expect(prompt).toContain("灼熱の闘技場");
+  });
+
+  it("ステージ特性は渡した候補だけが効果の要約付きで含まれる", () => {
+    const prompt = buildStagePrompt(
+      "極寒の氷原",
+      ["crit-up", "mp-regen-up"],
+      ["damage", "heal"],
+    );
+    for (const id of ["crit-up", "mp-regen-up"]) {
+      expect(prompt).toContain(id);
+    }
+    expect(prompt).toContain("全員の会心率が上がる");
+    // 候補にないidは提示されない
+    expect(prompt).not.toContain("attack-up");
+    expect(prompt).not.toContain("damage-cut");
+  });
+
+  it("ステージ特殊イベントは渡した候補だけが効果の要約付きで含まれる", () => {
+    const prompt = buildStagePrompt(
+      "瘴気の沼地",
+      ["attack-up", "damage-cut"],
+      ["mana-restore", "ailment"],
+    );
+    for (const id of ["mana-restore", "ailment"]) {
+      expect(prompt).toContain(id);
+    }
+    expect(prompt).toContain("状態異常でない生存者全員をやけど状態にする");
+    // 候補にないidは提示されない(trait側の "damage-cut" に "damage" が
+    // 部分一致してしまうため、id+開き括弧の形式で厳密にチェックします)
+    expect(prompt).not.toContain("damage(");
+    expect(prompt).not.toContain("heal(");
   });
 });
 

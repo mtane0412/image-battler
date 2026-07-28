@@ -16,9 +16,12 @@
 import { describe, expect, it } from "vitest";
 import { simulateBattle, simulateRoyale, simulateTeamBattle } from "./engine";
 import {
+  makeBattleStage,
   makeCharacter,
   makePassive,
   makeSpecialMove,
+  makeStageEvent,
+  makeStageTrait,
   sequenceRng,
 } from "../testing/fixtures";
 
@@ -1218,5 +1221,346 @@ describe("simulateRoyale: 入力検証", () => {
     expect(() =>
       simulateRoyale([重複1, 重複2, 第三者], sequenceRng([])),
     ).toThrow(/同一/);
+  });
+});
+
+describe("simulateBattle: ステージ(デフォルトの無影響)", () => {
+  it("stage省略とstage:nullは完全に同一の結果になる(乱数消費順も含む)", () => {
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, mp: 60, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const 乱数列 = [0.1, 0.5, 0.5, 0.5, 0.5, 0.1, 0.5];
+    const 省略時 = simulateBattle(攻め手, 受け手, sequenceRng([...乱数列]));
+    const null指定時 = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([...乱数列]),
+      null,
+    );
+    expect(null指定時).toEqual(省略時);
+  });
+});
+
+describe("simulateBattle: ステージ特性(常時発動・全員平等)", () => {
+  it("attack-up は全員の攻撃力が1.25倍になる(先頭でイベント不発の乱数を1つ消費)", () => {
+    // 通常: 40*1.0 - 20*0.4 = 32 / attack-up: 40*1.25*1.0 - 20*0.4 = 42
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("attack-up"),
+      event: makeStageEvent("damage"),
+    });
+    // [イベント不発, ミス判定, クリティカル判定, 威力補正]
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([0.9, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "attack",
+      critical: false,
+      damage: 42,
+    });
+  });
+
+  it("damage-cut は全員の被ダメージが0.75倍になる", () => {
+    // 通常: 32ダメージ → damage-cut: round(32 * 0.75) = 24
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("damage-cut"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([0.9, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({ type: "attack", damage: 24 });
+  });
+
+  it("crit-up はクリティカル率に+0.15を加算する(運0でも効果がある)", () => {
+    // 運0のため通常はクリティカル率0%。crit-up加算後は15%で0.1判定が命中する
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("crit-up"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([0.9, 0.5, 0.1, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "attack",
+      critical: true,
+      damage: 48,
+    });
+  });
+
+  it("mp-regen-up は行動後のMP回復量に+10を加算する", () => {
+    // aは必殺技(mpCost30)を使ってMPを60→30に減らし、行動後の回復量で検証する
+    // (最大MPが0のキャラは回復上限も0になり検証できないため、消費→回復の形にする)
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, defense: 20, hp: 300, mp: 60, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, hp: 300, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      // [イベント不発, aの必殺技判定(発動), aの威力補正, bのミス判定, bのクリット判定, bの威力補正]
+      sequenceRng([0.9, 0.1, 0.5, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-attack",
+      after: { a: { mp: 30 } },
+    });
+    // 通常の行動後回復は+10だが mp-regen-up で+10加算され合計+20。
+    // bの行動(events[1])のafterに反映される(MP回復はイベント発生の翌イベントに現れる)
+    expect(result.events[1]).toMatchObject({ after: { a: { mp: 50 } } });
+  });
+});
+
+describe("simulateBattle: ステージ特殊イベント(ラウンド開始時に抽選)", () => {
+  it("発動確率25%未満の乱数が出るとラウンド開始時にイベントが発動する", () => {
+    const a = makeCharacter({ id: "a", hp: 200, attack: 40, defense: 20, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", hp: 200, defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
+    });
+    // [イベント発動, ミス, クリット, 威力]
+    const result = simulateBattle(a, b, sequenceRng([0.2, 0.5, 0.5, 0.5]), stage);
+    // 参加順(a→b)でイベントが適用され、その後aの通常攻撃が続く
+    expect(result.events[0]).toMatchObject({
+      type: "stage-damage",
+      actorId: "a",
+      targetId: "a",
+      eventId: "damage",
+      damage: 20,
+      announce: true,
+      turn: 1,
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "stage-damage",
+      actorId: "b",
+      targetId: "b",
+      damage: 20,
+      announce: false,
+      turn: 1,
+    });
+    expect(result.events[2]).toMatchObject({ type: "attack", turn: 2 });
+  });
+
+  it("発動確率25%以上の乱数が出るとイベントは発動しない", () => {
+    const a = makeCharacter({ id: "a", attack: 40, defense: 20, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(a, b, sequenceRng([0.3, 0.5, 0.5, 0.5]), stage);
+    expect(result.events[0]).toMatchObject({ type: "attack", turn: 1 });
+    expect(result.events.some((e) => e.type === "stage-damage")).toBe(false);
+  });
+
+  it("damage は生存者全員にダメージを与えるがHP1未満にはならない(非致死)", () => {
+    const 瀕死 = makeCharacter({ id: "a", hp: 1, mp: 0, speed: 90 });
+    const 健康 = makeCharacter({ id: "b", hp: 200, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(
+      瀕死,
+      健康,
+      sequenceRng([0.2, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    // aは既にHP1のため実際のダメージは0になりイベントが出ない。bは20ダメージを受ける
+    const stageDamageEvents = result.events.filter(
+      (e) => e.type === "stage-damage",
+    );
+    expect(stageDamageEvents).toHaveLength(1);
+    expect(stageDamageEvents[0]).toMatchObject({
+      actorId: "b",
+      damage: 20,
+      after: { a: { hp: 1 } },
+    });
+  });
+
+  it("spring は満タンHPの対象には効果がなくイベントも出ない", () => {
+    const a = makeCharacter({ id: "a", hp: 200, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", hp: 200, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("heal"),
+    });
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([0.2, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events.some((e) => e.type === "stage-heal")).toBe(false);
+  });
+
+  it("spring はHPが減っている対象を最大HPの1/10回復する", () => {
+    const a = makeCharacter({ id: "a", hp: 200, attack: 40, defense: 20, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", hp: 200, attack: 40, defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("heal"),
+    });
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([
+        // ラウンド1: イベント不発 → aの通常攻撃(bに32) → bの通常攻撃(aに32)
+        0.9, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        // ラウンド2: イベント発動(spring)
+        0.2,
+      ]),
+      stage,
+    );
+    const healEvents = result.events.filter((e) => e.type === "stage-heal");
+    expect(healEvents).toHaveLength(2);
+    expect(healEvents[0]).toMatchObject({
+      actorId: "a",
+      healed: 20,
+      announce: true,
+    });
+    expect(healEvents[1]).toMatchObject({
+      actorId: "b",
+      healed: 20,
+      announce: false,
+    });
+  });
+
+  it("mana-restore は満タンMPの対象には効果がなくイベントも出ない", () => {
+    const a = makeCharacter({ id: "a", mp: 60, speed: 90 });
+    const b = makeCharacter({ id: "b", mp: 60, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("mana-restore"),
+    });
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([0.2, 0.1, 0.5]),
+      stage,
+    );
+    expect(result.events.some((e) => e.type === "stage-mp")).toBe(false);
+  });
+
+  it("mana-restore はMPが減っている対象の最大MPの半分を回復する", () => {
+    // 両者に必殺技(mpCost30)を使わせてMPを60→30に減らし、
+    // 行動後回復(+10)で40まで戻った状態からmana-restoreの効果を検証する
+    const a = makeCharacter({ id: "a", attack: 40, defense: 20, hp: 300, mp: 60, speed: 90 });
+    const b = makeCharacter({ id: "b", attack: 40, defense: 20, hp: 300, mp: 60, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("damage-cut"),
+      event: makeStageEvent("mana-restore"),
+    });
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([
+        // ラウンド1: イベント不発 → aの必殺技(発動) → bの必殺技(発動)
+        0.9, 0.1, 0.5, 0.1, 0.5,
+        // ラウンド2: イベント発動(mana-restore)
+        0.2,
+      ]),
+      stage,
+    );
+    const mpEvents = result.events.filter((e) => e.type === "stage-mp");
+    expect(mpEvents).toHaveLength(2);
+    // mp: 60-30+10=40 → min(60-40, round(60*0.5))=min(20,30)=20
+    expect(mpEvents[0]).toMatchObject({
+      actorId: "a",
+      restored: 20,
+      announce: true,
+    });
+    expect(mpEvents[1]).toMatchObject({
+      actorId: "b",
+      restored: 20,
+      announce: false,
+    });
+  });
+
+  it("ailment は状態異常でない生存者全員をやけど状態にする", () => {
+    const a = makeCharacter({ id: "a", mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("ailment"),
+    });
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([0.2, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    const ailmentEvents = result.events.filter(
+      (e) => e.type === "stage-ailment",
+    );
+    expect(ailmentEvents).toHaveLength(2);
+    expect(ailmentEvents[0]).toMatchObject({
+      actorId: "a",
+      ailment: "burn",
+      announce: true,
+    });
+    expect(ailmentEvents[1]).toMatchObject({
+      actorId: "b",
+      ailment: "burn",
+      announce: false,
+    });
+  });
+
+  it("ailment(状態異常)イベントは ailment-guard 持ちには効果がない", () => {
+    const 免疫持ち = makeCharacter({
+      id: "a",
+      mp: 0,
+      speed: 90,
+      passive: makePassive("ailment-guard"),
+    });
+    const 通常 = makeCharacter({ id: "b", mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("ailment"),
+    });
+    const result = simulateBattle(
+      免疫持ち,
+      通常,
+      sequenceRng([0.2, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    const ailmentEvents = result.events.filter(
+      (e) => e.type === "stage-ailment",
+    );
+    expect(ailmentEvents).toHaveLength(1);
+    expect(ailmentEvents[0]).toMatchObject({ actorId: "b" });
+  });
+
+  it("ステージイベントが毎ラウンド発動してもクラッシュせずに決着する(非致死の担保)", () => {
+    // 両者ともHPが低く、damageが毎ラウンド発動してHP1まで削るが、
+    // 通常攻撃でどちらかのHPが0になるまでクラッシュせず継続できることを確認する
+    const a = makeCharacter({ id: "a", hp: 5, attack: 1, defense: 100, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", hp: 5, attack: 1, defense: 100, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
+    });
+    // 各ラウンド: [イベント発動, aのミス判定, aのクリット判定, aの威力補正,
+    //             bのミス判定, bのクリット判定, bの威力補正]
+    const perRound = [0.1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    const rng = sequenceRng(Array.from({ length: 50 }, () => perRound).flat());
+    expect(() => simulateBattle(a, b, rng, stage)).not.toThrow();
   });
 });

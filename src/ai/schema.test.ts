@@ -7,7 +7,10 @@
 import { describe, expect, it } from "vitest";
 import {
   CharacterParseError,
+  StageParseError,
   buildCharacterGenerationSchema,
+  buildStageGenerationSchema,
+  parseGeneratedStage,
   parseGeneratedStats,
 } from "./schema";
 
@@ -305,5 +308,133 @@ describe("parseGeneratedStats", () => {
     expect(() => parseGeneratedStats(JSON.stringify(payload), 許可候補)).toThrow(
       CharacterParseError,
     );
+  });
+});
+
+/** テストで使う抽選済みステージ候補です(validStagePayload のidを含みます)。 */
+const 許可特性候補 = ["attack-up", "damage-cut"] as const;
+const 許可イベント候補 = ["damage", "heal"] as const;
+
+/** 正常なステージ生成モデル出力のサンプルを生成します。 */
+function validStagePayload(): Record<string, unknown> {
+  return {
+    title: "灼熱の闘技場",
+    description: "溶岩が渦巻く、灼熱に包まれたステージです",
+    trait: {
+      id: "attack-up",
+      name: "灼熱のオーラ",
+      description: "全員の攻撃力が上がる",
+    },
+    event: {
+      id: "damage",
+      name: "隕石落とし",
+      description: "隕石が降り注ぎ全員がダメージを受ける",
+    },
+  };
+}
+
+describe("buildStageGenerationSchema", () => {
+  it("自由記述の文字列フィールドすべてにmaxLengthが設定されている", () => {
+    const props = buildStageGenerationSchema(許可特性候補, 許可イベント候補)
+      .properties;
+    expect(props.title.maxLength).toBeGreaterThan(0);
+    expect(props.description.maxLength).toBeGreaterThan(0);
+    expect(props.trait.properties.name.maxLength).toBeGreaterThan(0);
+    expect(props.trait.properties.description.maxLength).toBeGreaterThan(0);
+    expect(props.event.properties.name.maxLength).toBeGreaterThan(0);
+    expect(props.event.properties.description.maxLength).toBeGreaterThan(0);
+  });
+
+  it("特性・イベントのidは渡した候補だけがenumに制約される", () => {
+    const schema = buildStageGenerationSchema(許可特性候補, 許可イベント候補);
+    expect(schema.properties.trait.properties.id.enum).toEqual([
+      "attack-up",
+      "damage-cut",
+    ]);
+    expect(schema.properties.event.properties.id.enum).toEqual([
+      "damage",
+      "heal",
+    ]);
+  });
+
+  it("特性候補が空の場合はエラーになる(Fail-Fast)", () => {
+    expect(() => buildStageGenerationSchema([], 許可イベント候補)).toThrow(
+      /候補/,
+    );
+  });
+
+  it("イベント候補が空の場合はエラーになる(Fail-Fast)", () => {
+    expect(() => buildStageGenerationSchema(許可特性候補, [])).toThrow(
+      /候補/,
+    );
+  });
+});
+
+describe("parseGeneratedStage", () => {
+  it("正常なJSON文字列をGeneratedStageに変換できる", () => {
+    const stage = parseGeneratedStage(
+      JSON.stringify(validStagePayload()),
+      許可特性候補,
+      許可イベント候補,
+    );
+    expect(stage.title).toBe("灼熱の闘技場");
+    expect(stage.trait.id).toBe("attack-up");
+    expect(stage.trait.name).toBe("灼熱のオーラ");
+    expect(stage.event.id).toBe("damage");
+    expect(stage.event.name).toBe("隕石落とし");
+  });
+
+  it("JSONとして解釈できない文字列を StageParseError で拒否する", () => {
+    expect(() =>
+      parseGeneratedStage("これはJSONではありません", 許可特性候補, 許可イベント候補),
+    ).toThrow(StageParseError);
+  });
+
+  it("必須フィールド(trait)の欠落を拒否する", () => {
+    const payload = validStagePayload();
+    delete payload.trait;
+    expect(() =>
+      parseGeneratedStage(JSON.stringify(payload), 許可特性候補, 許可イベント候補),
+    ).toThrow(StageParseError);
+  });
+
+  it("必須フィールド(event)の欠落を拒否する", () => {
+    const payload = validStagePayload();
+    delete payload.event;
+    expect(() =>
+      parseGeneratedStage(JSON.stringify(payload), 許可特性候補, 許可イベント候補),
+    ).toThrow(StageParseError);
+  });
+
+  it("定義済みでも候補にない特性id(crit-up)を拒否する", () => {
+    const payload = validStagePayload();
+    (payload.trait as Record<string, unknown>).id = "crit-up";
+    expect(() =>
+      parseGeneratedStage(JSON.stringify(payload), 許可特性候補, 許可イベント候補),
+    ).toThrow(StageParseError);
+  });
+
+  it("定義済みでも候補にないイベントid(ailment)を拒否する", () => {
+    const payload = validStagePayload();
+    (payload.event as Record<string, unknown>).id = "ailment";
+    expect(() =>
+      parseGeneratedStage(JSON.stringify(payload), 許可特性候補, 許可イベント候補),
+    ).toThrow(StageParseError);
+  });
+
+  it("空文字のtitleを拒否する", () => {
+    const payload = { ...validStagePayload(), title: "   " };
+    expect(() =>
+      parseGeneratedStage(JSON.stringify(payload), 許可特性候補, 許可イベント候補),
+    ).toThrow(StageParseError);
+  });
+
+  it("文字列の閉じ引用符が ' になる既知の癖を修復してパースできる", () => {
+    // キャラクター生成と同じ Gemini Nano の癖修復(parseWithQuirkRepairs)を共用する
+    const valid = JSON.stringify(validStagePayload());
+    const corrupted = `${valid.slice(0, -3)}'}}`;
+    expect(() => JSON.parse(corrupted)).toThrow();
+    const stage = parseGeneratedStage(corrupted, 許可特性候補, 許可イベント候補);
+    expect(stage.event.description).toBe("隕石が降り注ぎ全員がダメージを受ける");
   });
 });

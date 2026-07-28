@@ -132,6 +132,134 @@ export interface PassiveSkill {
 }
 
 /**
+ * ステージ特性の種類です。効果はバトルエンジンに実装済みで、
+ * AI は画像に合うものを選んで固有名を付けます。全員に平等にかかる「場の効果」です。
+ * id は効果の性質だけを表す抽象的な分類で、具体的なテーマ(炎・氷・光など)には
+ * 一切踏み込みません(id自体が「隕石」「炎」のような具体的なテーマ名だと、
+ * AI が選べる世界観がそのテーマに引っ張られてしまうため)。テーマ・固有名は
+ * name/description として AI が画像から自由に発想します。
+ * - attack-up: 全員の攻撃力が上がる
+ * - damage-cut: 全員の被ダメージが下がる
+ * - crit-up: 全員のクリティカル率が上がる
+ * - mp-regen-up: 全員の毎ターンMP回復量が上がる
+ */
+export type StageTraitId =
+  | "attack-up"
+  | "damage-cut"
+  | "crit-up"
+  | "mp-regen-up";
+
+/** ステージ特性の種類一覧です(検証・表示で使用します)。 */
+export const STAGE_TRAIT_IDS = [
+  "attack-up",
+  "damage-cut",
+  "crit-up",
+  "mp-regen-up",
+] as const satisfies readonly StageTraitId[];
+
+/**
+ * ステージ特性の効果の短い要約です。
+ * ステージ生成プロンプトの候補提示と、効果の説明表示に共用します。
+ */
+export const STAGE_TRAIT_SUMMARIES = {
+  "attack-up": "全員の攻撃力が上がる",
+  "damage-cut": "全員の被ダメージが下がる",
+  "crit-up": "全員の会心率が上がる",
+  "mp-regen-up": "全員のMP回復が速い",
+} as const satisfies Record<StageTraitId, string>;
+
+/** ステージ特性です。効果(id)はエンジン実装済み、名前はAIが付けます。 */
+export interface StageTrait {
+  /** 効果の種類(エンジンが解釈するID) */
+  id: StageTraitId;
+  /** AIが付けた固有名(例:「灼熱の闘技場」) */
+  name: string;
+  /** 効果の紹介文 */
+  description: string;
+}
+
+/**
+ * ステージ特殊イベントの種類です。ラウンド開始時に一定確率で発動し、
+ * 生存者全員に平等な効果を与えます。効果量はエンジンに実装済みで、
+ * AI は画像に合うものを選んで固有名を付けます。id は効果の性質だけを表す
+ * 抽象的な分類で、具体的なテーマ(隕石・炎・瘴気など)には踏み込みません
+ * (StageTraitId と同じ理由です)。テーマ・固有名は name/description として
+ * AI が画像から自由に発想します(例: id="damage" に対して火山の画像なら
+ * 「マグマの雨」、雷雲の画像なら「稲妻の裁き」のように)。
+ * - damage: 生存者全員がダメージを受ける(戦闘不能にはならない)
+ * - heal: 生存者全員のHPが少し回復する
+ * - mana-restore: 生存者全員のMPが大きく回復する
+ * - ailment: 状態異常でない生存者全員がやけど状態になる
+ */
+export type StageEventId = "damage" | "heal" | "mana-restore" | "ailment";
+
+/** ステージ特殊イベントの種類一覧です(検証・表示で使用します)。 */
+export const STAGE_EVENT_IDS = [
+  "damage",
+  "heal",
+  "mana-restore",
+  "ailment",
+] as const satisfies readonly StageEventId[];
+
+/**
+ * ステージ特殊イベントの効果の短い要約です。
+ * ステージ生成プロンプトの候補提示と、効果の説明表示に共用します。
+ * 具体的なテーマ(隕石・泉など)には触れず、効果の性質だけを説明します
+ * (テーマは AI が name/description で自由に発想するため)。
+ */
+export const STAGE_EVENT_SUMMARIES = {
+  damage: "生存者全員にダメージを与える",
+  heal: "生存者全員のHPを少し回復する",
+  "mana-restore": "生存者全員のMPを大きく回復する",
+  ailment: "状態異常でない生存者全員をやけど状態にする",
+} as const satisfies Record<StageEventId, string>;
+
+/** ステージ特殊イベントです。効果(id)はエンジン実装済み、名前はAIが付けます。 */
+export interface StageEvent {
+  /** 効果の種類(エンジンが解釈するID) */
+  id: StageEventId;
+  /** AIが付けた固有名(例:「隕石落とし」「稲妻の裁き」) */
+  name: string;
+  /** 効果の紹介文 */
+  description: string;
+}
+
+/**
+ * Gemini Nano が画像認識から生成するステージ情報一式です。
+ * ステージには数値ステータスを持たせず、特性・イベントの種類(id)だけを
+ * AI に選ばせます(効果量はエンジン側の定数のため、JSON出力を小さく保てます)。
+ */
+export interface GeneratedStage {
+  /** ステージ名(例:「灼熱の闘技場」) */
+  title: string;
+  /** ステージの紹介文 */
+  description: string;
+  /** 常時発動するステージ特性 */
+  trait: StageTrait;
+  /** ラウンド開始時に一定確率で発動する特殊イベント */
+  event: StageEvent;
+}
+
+/** localStorage に保存されるステージです。 */
+export interface Stage extends GeneratedStage {
+  /** 一意なID(crypto.randomUUID で採番) */
+  id: string;
+  /** ユーザーが付けた名前 */
+  name: string;
+  /** 縮小済み画像の DataURL(JPEG) */
+  imageDataUrl: string;
+  /** 作成日時(ISO 8601) */
+  createdAt: string;
+}
+
+/**
+ * バトルエンジンが必要とする最小限のステージ情報です。
+ * 永続化用フィールド(id・name・imageDataUrl・createdAt・title・description)を
+ * 含まないため、エンジンはステージの保存形式を知る必要がありません。
+ */
+export type BattleStage = Pick<Stage, "trait" | "event">;
+
+/**
  * Gemini Nano が画像認識から生成するステータス一式です。
  * 数値の許容範囲は ai/schema.ts の STAT_RANGES で定義します。
  */
@@ -281,6 +409,44 @@ export type BattleEventPayload =
         type: "regenerate";
         /** 実際に回復した量(最大HPを超えた分は含まない) */
         healed: number;
+      }
+    | {
+        /**
+         * ステージ特殊イベントによる行動後のダメージ(自己対象)。
+         * ラウンド開始時に生存者ごとに1件ずつ発行されます
+         */
+        type: "stage-damage";
+        eventId: StageEventId;
+        eventName: string;
+        /** そのラウンドのステージイベント群で最初の1件かどうか */
+        announce: boolean;
+        damage: number;
+      }
+    | {
+        /** ステージ特殊イベントによるHP回復(自己対象) */
+        type: "stage-heal";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        /** 実際に回復した量(最大HPを超えた分は含まない) */
+        healed: number;
+      }
+    | {
+        /** ステージ特殊イベントによるMP回復(自己対象) */
+        type: "stage-mp";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        /** 実際に回復した量(最大MPを超えた分は含まない) */
+        restored: number;
+      }
+    | {
+        /** ステージ特殊イベントによるステータス異常付与(自己対象) */
+        type: "stage-ailment";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        ailment: Extract<AilmentType, "burn">;
       }
   );
 

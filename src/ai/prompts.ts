@@ -3,8 +3,13 @@
  * すべて日本語で生成させます。Gemini Nano は小型モデルのため、
  * 指示は短く具体的にしています。
  */
-import type { AilmentType, PassiveSkillId } from "../types";
-import { AILMENT_LABELS, PASSIVE_SKILL_SUMMARIES } from "../types";
+import type { AilmentType, PassiveSkillId, StageEventId, StageTraitId } from "../types";
+import {
+  AILMENT_LABELS,
+  PASSIVE_SKILL_SUMMARIES,
+  STAGE_EVENT_SUMMARIES,
+  STAGE_TRAIT_SUMMARIES,
+} from "../types";
 import { STAT_RANGES } from "./schema";
 import type { StoryIngredients } from "./story";
 
@@ -15,6 +20,46 @@ export const CHARACTER_SYSTEM_PROMPT = [
   "ステータス・必殺技・パッシブスキルに反映させてください。",
   "出力はすべて日本語で、指定されたJSON形式のみを返してください。",
 ].join("");
+
+/** ステージ生成セッションのシステムプロンプトです。 */
+export const STAGE_SYSTEM_PROMPT = [
+  "あなたは対戦ゲームのステージデザイナーです。",
+  "渡された画像をよく観察し、写っているものの見た目・雰囲気を",
+  "ステージ特性・特殊イベントに反映させてください。",
+  "出力はすべて日本語で、指定されたJSON形式のみを返してください。",
+].join("");
+
+/**
+ * ステージ生成用のユーザープロンプトを組み立てます。画像と一緒に送信します。
+ *
+ * 特性・特殊イベントは全種類ではなく、抽選済みの候補(traitCandidates/
+ * eventCandidates)だけを提示します(ai/stages.ts で抽選、キャラクター生成の
+ * パッシブ候補提示と同じ理由です)。
+ */
+export function buildStagePrompt(
+  name: string,
+  traitCandidates: readonly StageTraitId[],
+  eventCandidates: readonly StageEventId[],
+): string {
+  const traitChoices = traitCandidates
+    .map((id) => `${id}(${STAGE_TRAIT_SUMMARIES[id]})`)
+    .join(" / ");
+  const eventChoices = eventCandidates
+    .map((id) => `${id}(${STAGE_EVENT_SUMMARIES[id]})`)
+    .join(" / ");
+  return [
+    `この画像のステージ「${name}」を対戦ゲームの舞台にしてください。`,
+    "画像の見た目から連想して、以下を日本語で決めてください。",
+    "- title: ステージ名(10文字程度)",
+    "- description: 見た目に触れた紹介文(50文字程度)",
+    "- trait: 常時発動するステージ特性。見た目に一番合うidを選び、かっこいい固有名を付ける。",
+    `  - id: ${traitChoices}`,
+    "  - name(固有名)、description(効果の紹介文。30文字以内)",
+    "- event: ラウンド開始時に発動する特殊イベント。見た目に一番合うidを選び、かっこいい固有名を付ける。",
+    `  - id: ${eventChoices}`,
+    "  - name(固有名)、description(効果の紹介文。30文字以内)",
+  ].join("\n");
+}
 
 /** 実況セッションのシステムプロンプトです。 */
 export const NARRATION_SYSTEM_PROMPT = [

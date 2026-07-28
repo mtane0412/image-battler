@@ -20,10 +20,18 @@
  *   life-steal/regenerate/berserk/evasion/first-strike)は
  *   エンジン内の判定に組み込まれています(passive が null のキャラは効果なし)
  *
+ * ステージ(battle/engine.ts の stage 引数): 画像から生成した「常時発動の特性」
+ * (攻撃力・被ダメージ・クリティカル率・MP回復への一律修正)と「ラウンド開始時に
+ * 一定確率で発動する特殊イベント」(生存者全員への平等な効果)を持ちます。
+ * stage が null(デフォルトステージ)のときは乱数を一切追加消費せず、
+ * 計算も一切変えません(倍率1・加算0の StageModifiers を使うため恒等)。
+ *
  * 乱数の消費順(テストと厳密に一致させること):
  * - バトル開始時: 行動順の決定。優先度(first-strike)も素早さも同じキャラクター
  *   同士のグループ内だけ[順序決定]を消費します(2体のグループは1回。
  *   0.5未満で元の並び=引数順が維持されます。1v1の従来仕様と互換です)
+ * - 各ラウンド開始時: stage が非nullの場合のみ[ステージイベント判定]を1回消費します
+ *   (発動時の効果適用自体は決定論的で追加の乱数を消費しません)
  * - 各アクション(倒れたキャラクターの枠は乱数もターン番号も消費しません):
  *   1. 凍結中: [解凍判定] / 麻痺中: [麻痺判定](行動不能ならここで終了)
  *   2. 必殺技が使用可能な場合: [必殺技判定] → 発動時、attack / ailment タイプは
@@ -40,10 +48,12 @@ import type {
   BattleEvent,
   BattleEventPayload,
   BattleResult,
+  BattleStage,
   Character,
   CombatantSnapshot,
   PassiveSkillId,
   RoyaleBattleResult,
+  StageEvent,
   TeamBattleResult,
 } from "../types";
 
@@ -141,6 +151,73 @@ const BERSERK_ATTACK_MULTIPLIER = 1.5;
 /** パッシブ evasion 持ちが通常攻撃を受けるときのミス発生率 */
 const EVASION_MISS_CHANCE = 0.2;
 
+/** ステージ特殊イベントの発動判定率(ラウンド開始時ごと) */
+const STAGE_EVENT_CHANCE = 0.25;
+/** ステージ特性 attack-up の攻撃力倍率 */
+const STAGE_TRAIT_ATTACK_MULTIPLIER = 1.25;
+/** ステージ特性 damage-cut の被ダメージ倍率 */
+const STAGE_TRAIT_DAMAGE_TAKEN_MULTIPLIER = 0.75;
+/** ステージ特性 crit-up のクリティカル率加算 */
+const STAGE_TRAIT_CRIT_RATE_BONUS = 0.15;
+/** ステージ特性 mp-regen-up の行動後MP回復量加算 */
+const STAGE_TRAIT_MP_REGEN_BONUS = 10;
+/** ステージイベント damage のダメージ(最大HPに掛ける) */
+const STAGE_EVENT_DAMAGE_RATIO = 1 / 10;
+/** ステージイベント heal の回復量(最大HPに掛ける) */
+const STAGE_EVENT_HEAL_RATIO = 1 / 10;
+/** ステージイベント mana-restore の回復量(最大MPに掛ける) */
+const STAGE_EVENT_MANA_RESTORE_RATIO = 1 / 2;
+
+/**
+ * ステージ特性がバトル計算に与える一律の修正値です。
+ * stage が null のときは全項目が恒等(倍率1・加算0)になり、既存の計算式と
+ * ビット単位で同一の結果を返します(x * 1 === x が IEEE754 で厳密に成立するため)。
+ */
+interface StageModifiers {
+  /** 攻撃力の倍率(attack-up) */
+  attackMul: number;
+  /**
+   * 被ダメージの倍率(damage-cut)。
+   * 適用範囲は通常攻撃・special-attack・special-ailment・counter の
+   * 4箇所のみです。毒/やけどのスリップダメージとステージイベント damage の
+   * ダメージには意図的に適用しません(damage-cut は「攻撃」に対する防御力で
+   * あり、環境由来のダメージを軽減する効果ではないため)。
+   */
+  damageTakenMul: number;
+  /** クリティカル率への加算(crit-up) */
+  critRateAdd: number;
+  /** 行動後MP回復量への加算(mp-regen-up) */
+  mpRegenAdd: number;
+}
+
+/** 効果のないステージ(デフォルトステージ)の修正値です。 */
+const DEFAULT_STAGE_MODIFIERS: StageModifiers = {
+  attackMul: 1,
+  damageTakenMul: 1,
+  critRateAdd: 0,
+  mpRegenAdd: 0,
+};
+
+/** stage からバトル計算用の StageModifiers を構築します(乱数は消費しません)。 */
+function buildStageModifiers(stage: BattleStage | null): StageModifiers {
+  if (stage === null) {
+    return DEFAULT_STAGE_MODIFIERS;
+  }
+  switch (stage.trait.id) {
+    case "attack-up":
+      return { ...DEFAULT_STAGE_MODIFIERS, attackMul: STAGE_TRAIT_ATTACK_MULTIPLIER };
+    case "damage-cut":
+      return {
+        ...DEFAULT_STAGE_MODIFIERS,
+        damageTakenMul: STAGE_TRAIT_DAMAGE_TAKEN_MULTIPLIER,
+      };
+    case "crit-up":
+      return { ...DEFAULT_STAGE_MODIFIERS, critRateAdd: STAGE_TRAIT_CRIT_RATE_BONUS };
+    case "mp-regen-up":
+      return { ...DEFAULT_STAGE_MODIFIERS, mpRegenAdd: STAGE_TRAIT_MP_REGEN_BONUS };
+  }
+}
+
 /** ダメージ計算値を丸め、最低1を保証します。 */
 function toDamage(raw: number): number {
   return Math.max(1, Math.round(raw));
@@ -151,9 +228,9 @@ function hasPassive(state: CombatantState, id: PassiveSkillId): boolean {
   return state.character.passive?.id === id;
 }
 
-/** 強化・逆境(berserk)・やけどを反映した実効攻撃力を返します。 */
-function effectiveAttack(state: CombatantState): number {
-  let attack = state.character.attack + state.attackBuff;
+/** 強化・逆境(berserk)・やけど・ステージ特性(attack-up)を反映した実効攻撃力を返します。 */
+function effectiveAttack(state: CombatantState, modifiers: StageModifiers): number {
+  let attack = (state.character.attack + state.attackBuff) * modifiers.attackMul;
   // berserk: HPが30%以下に減っているとき攻撃力が上がります
   if (
     hasPassive(state, "berserk") &&
@@ -282,6 +359,7 @@ interface MultiTeamBattleResult {
 function simulateMultiTeamBattle(
   teams: readonly (readonly Character[])[],
   rng: Rng,
+  stage: BattleStage | null = null,
 ): MultiTeamBattleResult {
   for (const team of teams) {
     if (team.length === 0) {
@@ -305,6 +383,7 @@ function simulateMultiTeamBattle(
   );
   const order = decideActionOrder(combatants, rng);
   const events: BattleEvent[] = [];
+  const modifiers = buildStageModifiers(stage);
 
   /** 行動者から見た「生存する他チームのメンバー」を返します(参加順を保ちます)。 */
   function livingOpponentsOf(actor: CombatantState): CombatantState[] {
@@ -394,8 +473,102 @@ function simulateMultiTeamBattle(
     return at(candidates, Math.floor(rng() * candidates.length));
   }
 
+  /**
+   * ステージ特殊イベントを生存者全員(参加順)に適用します。
+   * 効果がない対象(満タンHP/MP・状態異常の対象外など)へはイベントを発行しません。
+   * announce はそのラウンドで最初に効果を受けた対象の行だけ true になります
+   * (演出側で「発動した」ことを1回だけ告知するために使います)。
+   * damage は戦闘不能を起こさないため、ここでは countLivingTeams の再判定を行いません。
+   */
+  function applyStageEvent(turn: number, event: StageEvent): void {
+    let announced = false;
+    for (const c of combatants) {
+      if (c.hp === 0) {
+        continue;
+      }
+      switch (event.id) {
+        case "damage": {
+          const damage = toDamage(c.character.hp * STAGE_EVENT_DAMAGE_RATIO);
+          const nextHp = Math.max(1, c.hp - damage);
+          const actualDamage = c.hp - nextHp;
+          if (actualDamage <= 0) {
+            continue;
+          }
+          c.hp = nextHp;
+          emit(turn, c, c, {
+            type: "stage-damage",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            damage: actualDamage,
+          });
+          announced = true;
+          break;
+        }
+        case "heal": {
+          const healed = Math.min(
+            c.character.hp - c.hp,
+            Math.round(c.character.hp * STAGE_EVENT_HEAL_RATIO),
+          );
+          if (healed <= 0) {
+            continue;
+          }
+          c.hp += healed;
+          emit(turn, c, c, {
+            type: "stage-heal",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            healed,
+          });
+          announced = true;
+          break;
+        }
+        case "mana-restore": {
+          const restored = Math.min(
+            c.character.mp - c.mp,
+            Math.round(c.character.mp * STAGE_EVENT_MANA_RESTORE_RATIO),
+          );
+          if (restored <= 0) {
+            continue;
+          }
+          c.mp += restored;
+          emit(turn, c, c, {
+            type: "stage-mp",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            restored,
+          });
+          announced = true;
+          break;
+        }
+        case "ailment": {
+          if (c.ailment !== null || hasPassive(c, "ailment-guard")) {
+            continue;
+          }
+          c.ailment = "burn";
+          emit(turn, c, c, {
+            type: "stage-ailment",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            ailment: "burn",
+          });
+          announced = true;
+          break;
+        }
+      }
+    }
+  }
+
   let turn = 0;
   for (let round = 1; round <= MAX_ROUNDS; round++) {
+    // ステージ特殊イベントの発動判定です(デフォルトステージでは乱数を消費しません)
+    if (stage !== null && rng() < STAGE_EVENT_CHANCE) {
+      turn += 1;
+      applyStageEvent(turn, stage.event);
+    }
     for (const actor of order) {
       // 倒れたキャラクターの枠はスキップします(乱数・ターン番号を消費しません)
       if (actor.hp === 0) {
@@ -475,16 +648,17 @@ function simulateMultiTeamBattle(
     }
     const critRate =
       (actor.character.luck / CRIT_LUCK_DIVISOR) *
-      (hasPassive(actor, "crit-master") ? CRIT_MASTER_MULTIPLIER : 1);
+        (hasPassive(actor, "crit-master") ? CRIT_MASTER_MULTIPLIER : 1) +
+      modifiers.critRateAdd;
     const critical = rng() < critRate;
     const variance = NORMAL_VARIANCE_BASE + rng() * NORMAL_VARIANCE_RANGE;
     let raw =
-      effectiveAttack(actor) * variance -
+      effectiveAttack(actor, modifiers) * variance -
       effectiveDefense(target) * NORMAL_DEFENSE_FACTOR;
     if (critical) {
       raw *= CRIT_MULTIPLIER;
     }
-    const damage = toDamage(raw);
+    const damage = toDamage(raw * modifiers.damageTakenMul);
     const hit = applyDamage(target, damage);
     emit(turn, actor, target, { type: "attack", critical, damage });
     if (hit.endured) {
@@ -512,7 +686,7 @@ function simulateMultiTeamBattle(
     // --- 4. 反撃(パッシブ counter、通常攻撃の命中に対してのみ) ---
     if (hasPassive(target, "counter") && rng() < COUNTER_CHANCE) {
       const counterDamage = toDamage(
-        effectiveAttack(target) * COUNTER_DAMAGE_FACTOR,
+        effectiveAttack(target, modifiers) * COUNTER_DAMAGE_FACTOR * modifiers.damageTakenMul,
       );
       const counterHit = applyDamage(actor, counterDamage);
       emit(turn, target, actor, { type: "counter", damage: counterDamage });
@@ -546,9 +720,10 @@ function simulateMultiTeamBattle(
         const target = pickTarget(livingOpponents);
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const damage = toDamage(
-          move.power * variance +
-            effectiveAttack(actor) * SPECIAL_ATTACK_BONUS -
-            effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR,
+          (move.power * variance +
+            effectiveAttack(actor, modifiers) * SPECIAL_ATTACK_BONUS -
+            effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
+            modifiers.damageTakenMul,
         );
         const hit = applyDamage(target, damage);
         emit(turn, actor, target, {
@@ -588,7 +763,7 @@ function simulateMultiTeamBattle(
         const target = pickTarget(ailmentTargets);
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const damage = toDamage(
-          move.power * AILMENT_MOVE_POWER_FACTOR * variance,
+          move.power * AILMENT_MOVE_POWER_FACTOR * variance * modifiers.damageTakenMul,
         );
         const hit = applyDamage(target, damage);
         if (!hit.knockedOut) {
@@ -662,7 +837,8 @@ function simulateMultiTeamBattle(
       }
     }
     const regen =
-      MP_REGEN_PER_TURN * (hasPassive(actor, "mp-boost") ? MP_BOOST_MULTIPLIER : 1);
+      MP_REGEN_PER_TURN * (hasPassive(actor, "mp-boost") ? MP_BOOST_MULTIPLIER : 1) +
+      modifiers.mpRegenAdd;
     actor.mp = Math.min(actor.character.mp, actor.mp + regen);
     return "continue";
   }
@@ -678,8 +854,9 @@ export function simulateTeamBattle(
   firstTeam: readonly Character[],
   secondTeam: readonly Character[],
   rng: Rng,
+  stage: BattleStage | null = null,
 ): TeamBattleResult {
-  const result = simulateMultiTeamBattle([firstTeam, secondTeam], rng);
+  const result = simulateMultiTeamBattle([firstTeam, secondTeam], rng, stage);
   const winner =
     result.winnerTeamIndex === null
       ? null
@@ -698,6 +875,7 @@ export function simulateTeamBattle(
 export function simulateRoyale(
   fighters: readonly Character[],
   rng: Rng,
+  stage: BattleStage | null = null,
 ): RoyaleBattleResult {
   if (fighters.length < 2) {
     throw new Error("バトルロイヤルには2体以上のキャラクターが必要です");
@@ -705,6 +883,7 @@ export function simulateRoyale(
   const result = simulateMultiTeamBattle(
     fighters.map((fighter) => [fighter]),
     rng,
+    stage,
   );
   return {
     events: result.events,
@@ -725,8 +904,9 @@ export function simulateBattle(
   first: Character,
   second: Character,
   rng: Rng,
+  stage: BattleStage | null = null,
 ): BattleResult {
-  const result = simulateTeamBattle([first], [second], rng);
+  const result = simulateTeamBattle([first], [second], rng, stage);
   if (result.winner === null) {
     return { events: result.events, winnerId: null, loserId: null };
   }
