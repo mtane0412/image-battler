@@ -158,6 +158,130 @@ describe("renderHome: バトル形式の切り替えとチーム編成", () => {
   });
 });
 
+/** テスト用に指定した数のファイターを localStorage に保存して返します(バトルロイヤル用)。 */
+function seedManyCharacters(count: number): Character[] {
+  const characters = Array.from({ length: count }, (_, i) =>
+    makeCharacter({ id: `c${i + 1}`, name: `ファイター${i + 1}号` }),
+  );
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ version: STORAGE_VERSION, characters }),
+  );
+  return characters;
+}
+
+describe("renderHome: バトルロイヤル(3〜5人)の編成", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("「バトルロイヤル」ボタンで形式を切り替えられる", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    const modeButton = findModeButton(screen, "バトルロイヤル");
+    modeButton.click();
+    expect(modeButton.getAttribute("aria-pressed")).toBe("true");
+    expect(findModeButton(screen, "1vs1").getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  it("2人まではバトルスタートが無効で、ヒントに必要枚数が表示される", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "バトルロイヤル").click();
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+
+    expect(findStartButton(screen).disabled).toBe(true);
+    expect(screen.querySelector(".vs-hint")?.textContent).toContain("3〜5枚");
+  });
+
+  it("3人えらぶとバトルスタートが有効になり、えらんだ順の参加者でロイヤルへ遷移する", () => {
+    const characters = seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "バトルロイヤル").click();
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+    clickCard(screen, 2);
+    const startButton = findStartButton(screen);
+    expect(startButton.disabled).toBe(false);
+    startButton.click();
+
+    expect(ctx.navigate).toHaveBeenCalledWith({
+      name: "royale",
+      fighters: [characters[0], characters[1], characters[2]],
+    });
+  });
+
+  it("5人が上限で、6枚目のカードは選択できない", () => {
+    const characters = seedManyCharacters(6);
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "バトルロイヤル").click();
+    for (let i = 0; i < 6; i++) {
+      clickCard(screen, i);
+    }
+
+    // 6枚目は選択されず、スロットバッジは5枚のまま
+    expect(screen.querySelectorAll(".slot-badge")).toHaveLength(5);
+    findStartButton(screen).click();
+    expect(ctx.navigate).toHaveBeenCalledWith({
+      name: "royale",
+      fighters: characters.slice(0, 5),
+    });
+  });
+
+  it("スロットバッジはエントリー番号(No.1〜)で表示される", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "バトルロイヤル").click();
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+    clickCard(screen, 2);
+
+    const badges = [...screen.querySelectorAll(".slot-badge")].map(
+      (node) => node.textContent,
+    );
+    expect(badges).toEqual(["No.1", "No.2", "No.3"]);
+  });
+
+  it("ロイヤルの編成パネルにはVSマークが表示されない", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    // 既定の1vs1ではVSマークがある
+    expect(screen.querySelector(".vs-mark")).not.toBeNull();
+    findModeButton(screen, "バトルロイヤル").click();
+    expect(screen.querySelector(".vs-mark")).toBeNull();
+  });
+
+  it("ロイヤルから別形式へ切り替えると選択がリセットされる", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "バトルロイヤル").click();
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+    clickCard(screen, 2);
+    expect(screen.querySelectorAll(".slot-badge")).toHaveLength(3);
+
+    findModeButton(screen, "1vs1").click();
+    expect(screen.querySelectorAll(".slot-badge")).toHaveLength(0);
+  });
+});
+
 /** 表示中のBGM切り替えボタンを取得します。 */
 function findBgmButton(screen: HTMLElement): HTMLButtonElement {
   const found = [...screen.querySelectorAll("button")].find((node) =>

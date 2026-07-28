@@ -1,10 +1,12 @@
 /**
- * @file ホーム画面です。保存済みファイターの一覧・バトル形式(1vs1 / 2vs2)の
- * 切り替え・対戦チームの選択・バトル開始・キャラクター削除・
+ * @file ホーム画面です。保存済みファイターの一覧・バトル形式(1vs1 / 2vs2 /
+ * バトルロイヤル)の切り替え・対戦メンバーの選択・バトル開始・キャラクター削除・
  * Gemini Nano の利用可否表示を行います。
  *
  * チーム編成: カードを選んだ順に 1P チーム → 2P チームへ割り当てます
  * (1vs1 は各チーム1体、2vs2 は各チーム2体です)。
+ * バトルロイヤル(完全FFA): チームはなく、カードを選んだ順がそのまま
+ * エントリー順になります(3〜5人)。
  */
 import type { Character } from "../types";
 import {
@@ -19,20 +21,30 @@ import { bgmToggleButton } from "./bgm-toggle";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
 
-/** バトル形式です。チーム1体の1vs1と、チーム2体の2vs2があります。 */
-type BattleMode = "1v1" | "2v2";
+/** バトル形式です。チーム戦(1vs1 / 2vs2)とバトルロイヤル(完全FFA)があります。 */
+type BattleMode = "1v1" | "2v2" | "royale";
 
-/** バトル形式ごとの1チームの人数です。 */
-const TEAM_SIZE = {
-  "1v1": 1,
-  "2v2": 2,
-} as const satisfies Record<BattleMode, number>;
+/** バトルロイヤルの最小参加人数です。 */
+const ROYALE_MIN_FIGHTERS = 3;
+/** バトルロイヤルの最大参加人数です(参加人数を拡張する場合はここを変えます)。 */
+const ROYALE_MAX_FIGHTERS = 5;
 
-/** バトル形式の切り替えボタンに表示するラベルです。 */
-const MODE_LABELS = {
-  "1v1": "1vs1",
-  "2v2": "2vs2",
-} as const satisfies Record<BattleMode, string>;
+/** バトル形式ごとの編成ルールです(チーム戦は1チームの人数、ロイヤルは参加人数の範囲)。 */
+type ModeConfig =
+  | { label: string; kind: "teams"; teamSize: number }
+  | { label: string; kind: "royale"; minFighters: number; maxFighters: number };
+
+/** バトル形式ごとの設定(切り替えボタンのラベルと編成ルール)です。 */
+const MODE_CONFIG = {
+  "1v1": { label: "1vs1", kind: "teams", teamSize: 1 },
+  "2v2": { label: "2vs2", kind: "teams", teamSize: 2 },
+  royale: {
+    label: "バトルロイヤル",
+    kind: "royale",
+    minFighters: ROYALE_MIN_FIGHTERS,
+    maxFighters: ROYALE_MAX_FIGHTERS,
+  },
+} as const satisfies Record<BattleMode, ModeConfig>;
 
 /** ホーム画面を描画します。 */
 export function renderHome(ctx: AppContext): HTMLElement {
@@ -78,28 +90,48 @@ export function renderHome(ctx: AppContext): HTMLElement {
 
   // 現在のバトル形式です(切り替えると選択はリセットされます)
   let mode: BattleMode = "1v1";
-  // 対戦させるキャラクターの選択状態です(選択順に 1Pチーム → 2Pチームになります)
+  // 対戦させるキャラクターの選択状態です
+  // (チーム戦では選択順に 1Pチーム → 2Pチーム、ロイヤルでは選択順がエントリー順です)
   const selectedIds: string[] = [];
 
-  /** 現在のバトル形式での1チームの人数を返します。 */
-  function teamSize(): number {
-    return TEAM_SIZE[mode];
+  /** 現在のバトル形式の編成ルールを返します。 */
+  function config(): ModeConfig {
+    return MODE_CONFIG[mode];
   }
 
-  /** 現在のバトル形式で選択が必要なカードの合計枚数を返します。 */
-  function requiredCount(): number {
-    return teamSize() * 2;
+  /** 現在のバトル形式で選択できるカードの上限枚数を返します。 */
+  function maxSelectable(): number {
+    const current = config();
+    return current.kind === "teams"
+      ? current.teamSize * 2
+      : current.maxFighters;
   }
 
   /**
-   * 選択スロット(選択順の位置)が属するチームを返します。
+   * 選択スロット(選択順の位置)が属するチームを返します(チーム戦専用)。
    * 前半のスロットが 1P チーム、後半のスロットが 2P チームです。
    */
-  function teamOfSlot(slot: number): "p1" | "p2" {
-    return slot < teamSize() ? "p1" : "p2";
+  function teamOfSlot(slot: number, teamSize: number): "p1" | "p2" {
+    return slot < teamSize ? "p1" : "p2";
   }
 
-  // バトル形式(1vs1 / 2vs2)の切り替えボタンです
+  /**
+   * 選択スロットのバッジ表示(種別とラベル)を返します。
+   * チーム戦は所属チーム(1P / 2P)、ロイヤルはエントリー番号(No.1〜)です。
+   */
+  function slotBadgeOf(slot: number): {
+    kind: "p1" | "p2" | "royale";
+    text: string;
+  } {
+    const current = config();
+    if (current.kind === "royale") {
+      return { kind: "royale", text: `No.${slot + 1}` };
+    }
+    const team = teamOfSlot(slot, current.teamSize);
+    return { kind: team, text: team === "p1" ? "1P" : "2P" };
+  }
+
+  // バトル形式(1vs1 / 2vs2 / バトルロイヤル)の切り替えボタンです
   const modeButtons = new Map<BattleMode, HTMLButtonElement>();
   const modeToggle = el(
     "div",
@@ -111,6 +143,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       el("span", { className: "mode-label", text: "バトル形式" }),
       makeModeButton("1v1"),
       makeModeButton("2v2"),
+      makeModeButton("royale"),
     ],
   );
 
@@ -119,8 +152,10 @@ export function renderHome(ctx: AppContext): HTMLElement {
   screen.append(modeToggle, roster, vsPanel);
 
   function makeModeButton(value: BattleMode): HTMLButtonElement {
-    const node = button(MODE_LABELS[value], "btn btn-ghost mode-button", () =>
-      switchMode(value),
+    const node = button(
+      MODE_CONFIG[value].label,
+      "btn btn-ghost mode-button",
+      () => switchMode(value),
     );
     node.setAttribute("aria-pressed", value === mode ? "true" : "false");
     modeButtons.set(value, node);
@@ -145,7 +180,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
     const index = selectedIds.indexOf(id);
     if (index >= 0) {
       selectedIds.splice(index, 1);
-    } else if (selectedIds.length < requiredCount()) {
+    } else if (selectedIds.length < maxSelectable()) {
       selectedIds.push(id);
     }
     renderRoster();
@@ -163,14 +198,22 @@ export function renderHome(ctx: AppContext): HTMLElement {
     renderVsPanel();
   }
 
-  /** 選択済みのカードを選択順に 1P チーム / 2P チームへ分けて返します。 */
-  function selectedTeams(): { firstTeam: Character[]; secondTeam: Character[] } {
-    const selected = selectedIds
+  /** 選択済みのカードを選択順に返します。 */
+  function selectedCharacters(): Character[] {
+    return selectedIds
       .map((id) => characters.find((c) => c.id === id))
       .filter((c): c is Character => c !== undefined);
+  }
+
+  /** 選択済みのカードを選択順に 1P チーム / 2P チームへ分けて返します(チーム戦専用)。 */
+  function selectedTeams(teamSize: number): {
+    firstTeam: Character[];
+    secondTeam: Character[];
+  } {
+    const selected = selectedCharacters();
     return {
-      firstTeam: selected.slice(0, teamSize()),
-      secondTeam: selected.slice(teamSize()),
+      firstTeam: selected.slice(0, teamSize),
+      secondTeam: selected.slice(teamSize),
     };
   }
 
@@ -178,9 +221,9 @@ export function renderHome(ctx: AppContext): HTMLElement {
     roster.replaceChildren(
       ...characters.map((character) => {
         const slot = selectedIds.indexOf(character.id);
-        const team = slot >= 0 ? teamOfSlot(slot) : null;
+        const badge = slot >= 0 ? slotBadgeOf(slot) : null;
         const wrapper = el("div", {
-          className: `roster-item${team === "p1" ? " selected-p1" : ""}${team === "p2" ? " selected-p2" : ""}`,
+          className: `roster-item${badge === null ? "" : ` selected-${badge.kind}`}`,
         });
         const card = characterCard(character);
         card.classList.add("card-clickable");
@@ -197,11 +240,11 @@ export function renderHome(ctx: AppContext): HTMLElement {
             toggleSelect(character.id);
           }
         });
-        if (team !== null) {
+        if (badge !== null) {
           wrapper.append(
             el("span", {
-              className: `slot-badge slot-badge-${team}`,
-              text: team === "p1" ? "1P" : "2P",
+              className: `slot-badge slot-badge-${badge.kind}`,
+              text: badge.text,
             }),
           );
         }
@@ -222,9 +265,16 @@ export function renderHome(ctx: AppContext): HTMLElement {
   }
 
   function renderVsPanel(): void {
-    const { firstTeam, secondTeam } = selectedTeams();
+    const current = config();
+    if (current.kind === "royale") {
+      renderRoyalePanel(current);
+      return;
+    }
+    vsPanel.classList.remove("vs-panel-royale");
+    const { firstTeam, secondTeam } = selectedTeams(current.teamSize);
     const ready =
-      firstTeam.length === teamSize() && secondTeam.length === teamSize();
+      firstTeam.length === current.teamSize &&
+      secondTeam.length === current.teamSize;
     const startButton = button("バトルスタート", "btn btn-primary btn-large", () => {
       if (ready) {
         ctx.navigate({ name: "battle", firstTeam, secondTeam });
@@ -237,11 +287,48 @@ export function renderHome(ctx: AppContext): HTMLElement {
         ? "カードを2枚えらぶとバトルできます"
         : "カードを4枚えらぶとバトルできます(えらんだ順に 1P → 2P チーム)";
     vsPanel.replaceChildren(
-      vsSide(firstTeam, "p1", teamSize()),
+      vsSide(firstTeam, "p1", current.teamSize),
       el("span", { className: "vs-mark", text: "VS" }),
-      vsSide(secondTeam, "p2", teamSize()),
+      vsSide(secondTeam, "p2", current.teamSize),
       el("div", { className: "vs-panel-action" }, [
         // BGM設定はバトル開始前にここで切り替えます(バトル画面でも切り替え可能)
+        el("div", { className: "vs-panel-buttons" }, [
+          startButton,
+          bgmToggleButton(),
+        ]),
+        el("p", { className: "vs-hint", text: hintText }),
+      ]),
+    );
+  }
+
+  /**
+   * バトルロイヤルの編成パネルを描画します。
+   * チームがないためVSマークは表示せず、エントリー順のスロット列を並べます。
+   */
+  function renderRoyalePanel(current: {
+    minFighters: number;
+    maxFighters: number;
+  }): void {
+    vsPanel.classList.add("vs-panel-royale");
+    const fighters = selectedCharacters();
+    // 上限は選択時に maxSelectable で制限済みのため、下限だけ確認します
+    const ready = fighters.length >= current.minFighters;
+    const startButton = button("バトルスタート", "btn btn-primary btn-large", () => {
+      if (ready) {
+        ctx.navigate({ name: "royale", fighters });
+      }
+    });
+    startButton.disabled = !ready;
+    const hintText = ready
+      ? "じゅんびかんりょう!"
+      : `カードを${current.minFighters}〜${current.maxFighters}枚えらぶとバトルロイヤルできます(えらんだ順にエントリー)`;
+    const slots: HTMLElement[] = [];
+    for (let i = 0; i < current.maxFighters; i++) {
+      slots.push(vsSlot(fighters[i], "royale"));
+    }
+    vsPanel.replaceChildren(
+      el("div", { className: "vs-royale-entries" }, slots),
+      el("div", { className: "vs-panel-action" }, [
         el("div", { className: "vs-panel-buttons" }, [
           startButton,
           bgmToggleButton(),
@@ -269,14 +356,20 @@ function vsSide(
   return el("div", { className: `vs-side vs-side-${side}` }, slots);
 }
 
-/** VSパネルの1スロットを描画します。 */
-function vsSlot(character: Character | undefined, side: "p1" | "p2"): HTMLElement {
+/**
+ * VSパネルの1スロットを描画します。
+ * variant はスロットの見た目(1Pチーム / 2Pチーム / ロイヤルのエントリー)です。
+ */
+function vsSlot(
+  character: Character | undefined,
+  variant: "p1" | "p2" | "royale",
+): HTMLElement {
   if (character === undefined) {
-    return el("div", { className: `vs-slot vs-slot-${side} vs-slot-empty` }, [
+    return el("div", { className: `vs-slot vs-slot-${variant} vs-slot-empty` }, [
       el("span", { text: "?" }),
     ]);
   }
-  return el("div", { className: `vs-slot vs-slot-${side}` }, [
+  return el("div", { className: `vs-slot vs-slot-${variant}` }, [
     el("img", {
       attrs: { src: character.imageDataUrl, alt: `${character.name}の画像` },
     }),
