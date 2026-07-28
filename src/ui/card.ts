@@ -111,7 +111,11 @@ export type StageCardData = GeneratedStage & {
   imageDataUrl: string;
 };
 
-/** ステージカード(画像・名前・紹介文・特性・特殊イベント)を描画します。 */
+/**
+ * ステージカード(画像・名前・紹介文・特殊イベント・特性)を描画します。
+ * ファイターカード(必殺技が上・とくせいが下)と行の並びを揃えるため、
+ * とくしゅいべんと(card-special)を先、とくせい(card-passive)を後に配置します。
+ */
 export function stageCard(data: StageCardData): HTMLElement {
   return el("article", { className: "card stage-card" }, [
     el("div", { className: "card-portrait stage-card-portrait" }, [
@@ -122,17 +126,6 @@ export function stageCard(data: StageCardData): HTMLElement {
     el("p", { className: "card-title stage-card-title", text: data.title }),
     el("h3", { className: "card-name stage-card-name", text: data.name }),
     el("p", { className: "card-desc stage-card-desc", text: data.description }),
-    el("div", { className: "card-passive stage-card-trait" }, [
-      el("span", { className: "card-passive-label", text: "とくせい" }),
-      el("span", {
-        className: "card-passive-name stage-card-trait-name",
-        text: data.trait.name,
-      }),
-      el("span", {
-        className: "card-passive-desc stage-card-trait-desc",
-        text: data.trait.description,
-      }),
-    ]),
     el("div", { className: "card-special stage-card-event" }, [
       el("span", { className: "card-special-label", text: "とくしゅいべんと" }),
       el("span", {
@@ -142,6 +135,17 @@ export function stageCard(data: StageCardData): HTMLElement {
       el("span", {
         className: "card-special-desc stage-card-event-desc",
         text: data.event.description,
+      }),
+    ]),
+    el("div", { className: "card-passive stage-card-trait" }, [
+      el("span", { className: "card-passive-label", text: "とくせい" }),
+      el("span", {
+        className: "card-passive-name stage-card-trait-name",
+        text: data.trait.name,
+      }),
+      el("span", {
+        className: "card-passive-desc stage-card-trait-desc",
+        text: data.trait.description,
       }),
     ]),
   ]);

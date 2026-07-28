@@ -68,9 +68,8 @@ export function renderHome(ctx: AppContext): HTMLElement {
     return screen;
   }
 
-  // --- ステージ ---
-  // ファイターが0体でもステージ作成への導線・選択が見えるよう、
-  // ファイターの空状態判定より前にステージセクションを組み立てます。
+  // ステージのデータはここで読み込みますが、DOM追加(見出し・ロースター)は
+  // ファイターセクションの後に行います(表示順をファイター→ステージにするため)。
   let stages: Stage[];
   try {
     stages = loadStages();
@@ -83,15 +82,20 @@ export function renderHome(ctx: AppContext): HTMLElement {
   // 選択中のステージ(未選択 = デフォルトステージ = null)です
   let selectedStageId: string | null = null;
   const stageRoster = el("div", { className: "roster stage-roster" });
-  screen.append(
-    el("div", { className: "section-head" }, [
-      el("h2", { className: "section-title", text: "ステージ" }),
-      button("+ 新しいステージをつくる", "btn btn-primary", () =>
-        ctx.navigate({ name: "stage-create" }),
-      ),
-    ]),
-    stageRoster,
-  );
+
+  /** ステージセクション(見出し+ロースター)をDOMに追加して描画します。 */
+  function appendStageSection(): void {
+    screen.append(
+      el("div", { className: "section-head" }, [
+        el("h2", { className: "section-title", text: "ステージ" }),
+        button("+ 新しいステージをつくる", "btn btn-primary", () =>
+          ctx.navigate({ name: "stage-create" }),
+        ),
+      ]),
+      stageRoster,
+    );
+    renderStageRoster();
+  }
 
   screen.append(
     el("div", { className: "section-head" }, [
@@ -101,8 +105,6 @@ export function renderHome(ctx: AppContext): HTMLElement {
       ),
     ]),
   );
-
-  renderStageRoster();
 
   if (characters.length === 0) {
     screen.append(
@@ -117,6 +119,8 @@ export function renderHome(ctx: AppContext): HTMLElement {
         }),
       ]),
     );
+    // ファイターが0体でもステージ作成への導線・選択が見えるよう追加します
+    appendStageSection();
     return screen;
   }
 
@@ -248,6 +252,31 @@ export function renderHome(ctx: AppContext): HTMLElement {
     return stages.find((s) => s.id === selectedStageId) ?? null;
   }
 
+  /**
+   * バトルスタートの隣に表示する、選択中ステージの小さいアイコンです。
+   * デフォルトステージ(未選択)のときは何も表示しません。
+   */
+  function stageIndicator(): HTMLElement | null {
+    const stage = selectedStage();
+    if (stage === null) {
+      return null;
+    }
+    return el("img", {
+      className: "stage-indicator",
+      attrs: { src: stage.imageDataUrl, alt: "", title: stage.name },
+    });
+  }
+
+  /**
+   * vs-panel-buttons に差し込むステージアイコンです。
+   * el() の children にそのままスプレッドできるよう配列で返します
+   * (デフォルトステージのときは空配列)。
+   */
+  function vsPanelIndicator(): HTMLElement[] {
+    const indicator = stageIndicator();
+    return indicator === null ? [] : [indicator];
+  }
+
   function selectStage(id: string | null): void {
     selectedStageId = id;
     renderStageRoster();
@@ -280,12 +309,17 @@ export function renderHome(ctx: AppContext): HTMLElement {
         attrs: { type: "button", "aria-label": "デフォルトステージを選択" },
       },
       [
-        el("p", {
-          className: "stage-card-default-label",
+        el("div", {
+          className: "card-portrait stage-card-portrait stage-card-default-portrait",
+          text: "—",
+        }),
+        el("p", { className: "card-title stage-card-title", text: "こうかなし" }),
+        el("h3", {
+          className: "card-name stage-card-name",
           text: "デフォルトステージ",
         }),
         el("p", {
-          className: "stage-card-default-desc",
+          className: "card-desc stage-card-desc",
           text: "とくに効果はありません",
         }),
       ],
@@ -427,6 +461,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       el("div", { className: "vs-panel-action" }, [
         // BGM設定はバトル開始前にここで切り替えます(バトル画面でも切り替え可能)
         el("div", { className: "vs-panel-buttons" }, [
+          ...vsPanelIndicator(),
           startButton,
           bgmToggleButton(),
         ]),
@@ -464,6 +499,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       el("div", { className: "vs-royale-entries" }, slots),
       el("div", { className: "vs-panel-action" }, [
         el("div", { className: "vs-panel-buttons" }, [
+          ...vsPanelIndicator(),
           startButton,
           bgmToggleButton(),
         ]),
@@ -471,6 +507,8 @@ export function renderHome(ctx: AppContext): HTMLElement {
       ]),
     );
   }
+
+  appendStageSection();
 
   renderRoster();
   renderVsPanel();

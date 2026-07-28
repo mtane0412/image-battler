@@ -508,11 +508,14 @@ body:has(.battle-screen) .app-logo {
 
 /* ---------- ステージ選択(ホーム) ---------- */
 
-/* ステージカードは行数構成(画像/名前/紹介文/とくせい/イベント)が
+/* ステージカードは行数構成(画像/名前/紹介文/とくしゅいべんと/とくせい)が
    ファイターカードと異なるため、.roster-item のサブグリッド指定
-   (8行共有)を打ち消して通常の縦積みフローに戻します */
+   (8行共有)を打ち消して通常の縦積みフローに戻します。
+   カードと「けす」ボタンの間隔は .roster-item の row-gap(8px)と揃えます */
 .stage-roster-item {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   grid-row: auto;
 }
 
@@ -531,27 +534,21 @@ body:has(.battle-screen) .app-logo {
   transform: translateY(-3px);
 }
 
+/* デフォルトステージは stageCard() と同じ構造(画像枠・タイトル・名前・説明)に
+   揃え、画像枠は空のプレースホルダー(.card-portrait の背景色のみ)にします */
 .stage-card-default {
   width: 100%;
-  min-height: 160px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   text-align: center;
   color: inherit;
   font: inherit;
 }
 
-.stage-card-default-label {
-  font-family: var(--font-dot);
-  font-size: 14px;
-}
-
-.stage-card-default-desc {
-  font-size: 12px;
+.stage-card-default-portrait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
+  font-size: 28px;
 }
 
 /* 選択中のステージは金色の枠で強調します(バトルロイヤルの選択と同色) */
@@ -689,6 +686,17 @@ body:has(.battle-screen) .app-logo {
   border-color: var(--gold);
   color: var(--gold);
   background: rgba(255, 210, 74, 0.12);
+}
+
+/* バトルスタートの隣に表示する、選択中ステージの小さいアイコンです
+   (デフォルトステージのときは表示しません)。 */
+.stage-indicator {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .vs-hint {
