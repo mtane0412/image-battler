@@ -1360,6 +1360,18 @@ body:has(.battle-screen) .app-logo {
   animation: lunge-left 0.35s ease-out;
 }
 
+/* バトルロイヤルは fighter-p1/fighter-p2 のような固定の左右クラスがないため、
+   JS側(royaleLungeOffsetPx)が計算した --lunge-x の符号で突進方向を決めます */
+@keyframes lunge-dynamic {
+  30% {
+    transform: translateX(var(--lunge-x, 0px));
+  }
+}
+
+.fighter-royale.lunge {
+  animation: lunge-dynamic 0.35s ease-out;
+}
+
 .fighter.shake {
   animation: hit-shake 0.4s ease-out;
 }

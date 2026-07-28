@@ -5,8 +5,10 @@
  *
  * バトルロイヤル(完全FFA): チーム分け・VSマークなしで全参加者を1つの
  * グリッドに並べます。枠色は全員共通(fighter-royale)、カットインの方向は
- * エントリー順の偶奇で決めます(royale-view.ts)。再生ロジックは
- * チーム戦と完全に共有します。
+ * エントリー順の偶奇で決めます(royale-view.ts)。攻撃時の突進(lunge)演出も
+ * チーム戦と共通ですが、固定の左右クラスが使えないため実際のDOM位置から
+ * 突進方向を都度計算します(royale-view.ts の royaleLungeOffsetPx)。
+ * 再生ロジックはチーム戦と完全に共有します。
  *
  * フォールバック方針(明示): 実況・前口上(演出)の生成に失敗してもバトル本体は
  * JavaScript側の計算で完結しているため、失敗をログに明示した上で
@@ -69,6 +71,7 @@ import { sampleStoryIngredients, type StoryIngredients } from "../ai/story";
 import {
   cutinSideFor,
   pickTimeoutDefeatSpeaker,
+  royaleLungeOffsetPx,
   royaleOutcome,
   type CutinSide,
 } from "./royale-view";
@@ -833,15 +836,15 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
     switch (event.type) {
       case "attack":
       case "counter":
-        actor.root.classList.add("lunge");
+        lunge(actor.root, target.root);
         target.root.classList.add("shake");
         break;
       case "miss":
-        actor.root.classList.add("lunge");
+        lunge(actor.root, target.root);
         break;
       case "special-attack":
       case "special-ailment":
-        actor.root.classList.add("lunge");
+        lunge(actor.root, target.root);
         target.root.classList.add("flash");
         break;
       case "special-heal":
@@ -858,6 +861,24 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
       case "endure":
         break;
     }
+  }
+
+  /**
+   * actor に突進アニメーション(lunge クラス)を付与します。
+   * 1v1/2v2 は fighter-p1/fighter-p2 の固定クラス(styles.css の
+   * lunge-right/lunge-left)で突進方向が決まりますが、バトルロイヤル
+   * (fighter-royale)は全員同じ枠色で折り返しグリッドに並ぶため固定方向が
+   * 使えません。そのため実際のDOM位置から突進方向(--lunge-x)を都度計算します。
+   */
+  function lunge(actorRoot: HTMLElement, targetRoot: HTMLElement): void {
+    if (actorRoot.classList.contains("fighter-royale")) {
+      const offsetPx = royaleLungeOffsetPx(
+        actorRoot.getBoundingClientRect(),
+        targetRoot.getBoundingClientRect(),
+      );
+      actorRoot.style.setProperty("--lunge-x", `${offsetPx}px`);
+    }
+    actorRoot.classList.add("lunge");
   }
 
   /**

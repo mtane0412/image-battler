@@ -1,12 +1,39 @@
 /**
  * @file バトル画面のバトルロイヤル(完全FFA)固有の表示ロジックです。
  * jsdom でテストしづらい battle.ts 本体から切り出した純粋関数群で、
- * カットインの方向・勝敗の正規化・判定負け時の断末魔担当を決めます。
+ * カットインの方向・勝敗の正規化・判定負け時の断末魔担当・突進演出の方向を決めます。
  */
 import type { Character } from "../types";
 
 /** カットインのスライド方向クラスです(styles.css の .cutin-left / .cutin-right と対応)。 */
 export type CutinSide = "cutin-left" | "cutin-right";
+
+/**
+ * バトルロイヤルの突進アニメーションの横移動量(px)です。
+ * styles.css の lunge-right/lunge-left(1v1/2v2用)と同じ距離に揃えています。
+ */
+const ROYALE_LUNGE_DISTANCE_PX = 30;
+
+/**
+ * バトルロイヤルの突進アニメーションのスライド方向(px)を、攻撃側・対象側の
+ * DOM矩形(左端座標と幅)を比較して決めます。
+ *
+ * ロイヤルは全員が同じ枠色(fighter-royale)で折り返しグリッドに並ぶため、
+ * 1v1/2v2 の fighter-p1/fighter-p2 のような固定の左右クラスで突進方向を
+ * 決められません。そのため実際の表示位置の中心X座標を比較し、対象が右に
+ * いれば正の値(右へ突進)、左にいれば負の値(左へ突進)を返します。
+ * 中心X座標が一致する場合(真上/真下に並ぶ場合など)は右へ突進します。
+ */
+export function royaleLungeOffsetPx(
+  actorRect: { left: number; width: number },
+  targetRect: { left: number; width: number },
+): number {
+  const actorCenterX = actorRect.left + actorRect.width / 2;
+  const targetCenterX = targetRect.left + targetRect.width / 2;
+  return targetCenterX >= actorCenterX
+    ? ROYALE_LUNGE_DISTANCE_PX
+    : -ROYALE_LUNGE_DISTANCE_PX;
+}
 
 /**
  * バトルロイヤルでのカットインのスライド方向を決めます。
