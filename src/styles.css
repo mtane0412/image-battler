@@ -769,9 +769,11 @@ body:has(.battle-screen) .app-logo {
   min-width: 0;
 }
 
-/* 2Pチームは右端に寄せます(VSマークを中央に挟む従来の見た目を維持します) */
+/* 2Pチームは右端に寄せます(VSマークを中央に挟む従来の見た目を維持します)。
+   justify-content: end ではなく justify-self: end を使うのは、行方向を subgrid に
+   したグリッドコンテナでは Chromium が列方向の justify-content を無視するためです */
 .stage-team-p2 {
-  justify-content: end;
+  justify-self: end;
 }
 
 /* 2vs2は4体を横に並べるため、1体あたりの幅を一段抑えます */
@@ -1345,6 +1347,11 @@ body:has(.battle-screen) .app-logo {
     grid-template-rows: repeat(9, auto);
     grid-auto-columns: min(160px, 40vw);
     justify-content: center;
+  }
+
+  /* 上下積みでは2Pチームも中央寄せにするため、右端寄せ(justify-self: end)を解除します */
+  .stage-2v2 .stage-team-p2 {
+    justify-self: stretch;
   }
 
   .fighter-name {
