@@ -122,6 +122,12 @@ body:has(.battle-screen) .app-logo {
   margin: 0 0 4px;
 }
 
+/* 音素材(魔王魂・効果音ラボ)のクレジット表記のリンクです */
+.app-credits a {
+  color: var(--muted);
+  text-decoration: underline;
+}
+
 /* ---------- 汎用 ---------- */
 
 .screen {
@@ -603,6 +609,21 @@ body:has(.battle-screen) .app-logo {
 
 .vs-panel-action {
   text-align: center;
+}
+
+/* バトルスタートとBGM切り替えボタンを横に並べる行です */
+.vs-panel-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* BGM切り替えボタンです(ONのときは金色でトグル状態を示します) */
+.bgm-button[aria-pressed="true"] {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(255, 210, 74, 0.12);
 }
 
 .vs-hint {

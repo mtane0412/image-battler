@@ -60,6 +60,7 @@ import {
 import { sampleStoryIngredients } from "../ai/story";
 import { describeEvent } from "./format";
 import { fighterInfoPanel } from "./fighter-info";
+import { bgmToggleButton } from "./bgm-toggle";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
 import {
@@ -68,6 +69,7 @@ import {
   selectSpecialSeKey,
   type SeKey,
 } from "../audio/se";
+import { getSharedBgmPlayer, loadBgmEnabled } from "../audio/bgm";
 
 /** イベント間の待ち時間(ミリ秒)です。 */
 const EVENT_INTERVAL_MS = 450;
@@ -140,6 +142,13 @@ export function renderBattle(
   // 効果音の準備(バトル開始前に先読みします)
   const sePlayer = createSePlayer();
   sePlayer.preload();
+
+  // BGMの準備(設定がONならランダムに選んだ戦闘曲をループ再生します。
+  // 決着時とバトル画面以外への遷移時に停止します)
+  const bgmPlayer = getSharedBgmPlayer();
+  if (loadBgmEnabled()) {
+    bgmPlayer.play();
+  }
 
   // --- 参加者(ファイターブロック・必殺技効果音はキャラクターごとに一度だけ決定) ---
   function makeParticipants(
@@ -217,11 +226,24 @@ export function renderBattle(
     ctx.navigate({ name: "battle", firstTeam, secondTeam });
   });
 
+  // バトル中でもBGMを切り替えられるようにします(ONで即再生・OFFで即停止)
+  const bgmButton = bgmToggleButton((enabled) => {
+    if (enabled) {
+      bgmPlayer.play();
+    } else {
+      bgmPlayer.stop();
+    }
+  });
+
   screen.append(
     stage,
     logWindow,
     resultBanner,
-    el("div", { className: "battle-controls" }, [homeButton, rematchButton]),
+    el("div", { className: "battle-controls" }, [
+      homeButton,
+      rematchButton,
+      bgmButton,
+    ]),
   );
 
   void playBattle();
@@ -491,6 +513,8 @@ export function renderBattle(
         await typeLine(`${loserSpeaker.name}「${defeatSpeech}」`, "speech");
       }
     }
+    // 勝利ファンファーレと重ならないよう、決着の演出前にBGMを止めます
+    bgmPlayer.stop();
     sePlayer.play(result.winner === null ? "draw" : "victory");
     showResult(winnerTeam);
     // 勝者代表の決めゼリフを締めの実況の前に挟みます(間に合わなければスキップ)

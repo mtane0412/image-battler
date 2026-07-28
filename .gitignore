@@ -5,5 +5,7 @@ dist/
 .env*
 # 効果音ラボの素材(再配布禁止のためコミットしない。npm run fetch:se で取得)
 public/se/
+# 魔王魂のBGM素材(再配布禁止のためコミットしない。npm run fetch:bgm で取得)
+public/bgm/
 *.log
 .DS_Store
