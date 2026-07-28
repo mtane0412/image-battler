@@ -324,7 +324,6 @@ export function renderHome(ctx: AppContext): HTMLElement {
       [
         el("div", {
           className: "card-portrait stage-card-portrait stage-card-default-portrait",
-          text: "—",
         }),
         el("p", { className: "card-title stage-card-title", text: "こうかなし" }),
         el("h3", {

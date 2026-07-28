@@ -549,12 +549,16 @@ body:has(.battle-screen) .app-logo {
   font: inherit;
 }
 
+/* デフォルトステージの画像枠です。画像がないため、バトルスタート隣の
+   .stage-indicator-default と同じくアプリ全体の背景(body)と同じ配色・
+   ドット柄を敷いて「無地の背景」を表します */
 .stage-card-default-portrait {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  font-size: 28px;
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -10%, #223066 0%, rgba(34, 48, 102, 0) 65%),
+    radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1.4px);
+  background-repeat: no-repeat, repeat;
+  background-size: auto, 10px 10px;
 }
 
 /* 選択中のステージは金色の枠で強調します(バトルロイヤルの選択と同色) */
