@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   cutinSideFor,
   pickTimeoutDefeatSpeaker,
+  royaleLungeOffsetPx,
   royaleOutcome,
 } from "./royale-view";
 import { makeCharacter } from "../testing/fixtures";
@@ -62,5 +63,34 @@ describe("pickTimeoutDefeatSpeaker", () => {
 
   it("敗者がいない場合は null を返す", () => {
     expect(pickTimeoutDefeatSpeaker([], new Set())).toBeNull();
+  });
+});
+
+describe("royaleLungeOffsetPx", () => {
+  it("対象が右側にいる場合は正の値(右へ突進)を返す", () => {
+    const もふ吉Rect = { left: 0, width: 100 };
+    const がぶ太Rect = { left: 300, width: 100 };
+    expect(royaleLungeOffsetPx(もふ吉Rect, がぶ太Rect)).toBeGreaterThan(0);
+  });
+
+  it("対象が左側にいる場合は負の値(左へ突進)を返す", () => {
+    const もふ吉Rect = { left: 300, width: 100 };
+    const がぶ太Rect = { left: 0, width: 100 };
+    expect(royaleLungeOffsetPx(もふ吉Rect, がぶ太Rect)).toBeLessThan(0);
+  });
+
+  it("対象が真上/真下など中心のX座標が一致する場合は右へ突進する", () => {
+    const もふ吉Rect = { left: 100, width: 100 };
+    const がぶ太Rect = { left: 100, width: 100 };
+    expect(royaleLungeOffsetPx(もふ吉Rect, がぶ太Rect)).toBeGreaterThan(0);
+  });
+
+  it("突進距離は1v1/2v2の固定演出(styles.cssのlunge-right/lunge-left)と同じ絶対値になる", () => {
+    const もふ吉Rect = { left: 0, width: 100 };
+    const がぶ太Rect = { left: 300, width: 100 };
+    const 右突進 = royaleLungeOffsetPx(もふ吉Rect, がぶ太Rect);
+    const 左突進 = royaleLungeOffsetPx(がぶ太Rect, もふ吉Rect);
+    expect(右突進).toBe(30);
+    expect(左突進).toBe(-30);
   });
 });
