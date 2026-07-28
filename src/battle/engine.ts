@@ -153,20 +153,20 @@ const EVASION_MISS_CHANCE = 0.2;
 
 /** ステージ特殊イベントの発動判定率(ラウンド開始時ごと) */
 const STAGE_EVENT_CHANCE = 0.25;
-/** ステージ特性 blazing の攻撃力倍率 */
+/** ステージ特性 attack-up の攻撃力倍率 */
 const STAGE_TRAIT_ATTACK_MULTIPLIER = 1.25;
-/** ステージ特性 fortified の被ダメージ倍率 */
+/** ステージ特性 damage-cut の被ダメージ倍率 */
 const STAGE_TRAIT_DAMAGE_TAKEN_MULTIPLIER = 0.75;
-/** ステージ特性 fortunate のクリティカル率加算 */
+/** ステージ特性 crit-up のクリティカル率加算 */
 const STAGE_TRAIT_CRIT_RATE_BONUS = 0.15;
-/** ステージ特性 mana-rich の行動後MP回復量加算 */
+/** ステージ特性 mp-regen-up の行動後MP回復量加算 */
 const STAGE_TRAIT_MP_REGEN_BONUS = 10;
-/** ステージイベント meteor のダメージ(最大HPに掛ける) */
-const STAGE_EVENT_METEOR_DAMAGE_RATIO = 1 / 10;
-/** ステージイベント spring の回復量(最大HPに掛ける) */
-const STAGE_EVENT_SPRING_HEAL_RATIO = 1 / 10;
-/** ステージイベント mana-burst の回復量(最大MPに掛ける) */
-const STAGE_EVENT_MANA_BURST_RESTORE_RATIO = 1 / 2;
+/** ステージイベント damage のダメージ(最大HPに掛ける) */
+const STAGE_EVENT_DAMAGE_RATIO = 1 / 10;
+/** ステージイベント heal の回復量(最大HPに掛ける) */
+const STAGE_EVENT_HEAL_RATIO = 1 / 10;
+/** ステージイベント mana-restore の回復量(最大MPに掛ける) */
+const STAGE_EVENT_MANA_RESTORE_RATIO = 1 / 2;
 
 /**
  * ステージ特性がバトル計算に与える一律の修正値です。
@@ -174,19 +174,19 @@ const STAGE_EVENT_MANA_BURST_RESTORE_RATIO = 1 / 2;
  * ビット単位で同一の結果を返します(x * 1 === x が IEEE754 で厳密に成立するため)。
  */
 interface StageModifiers {
-  /** 攻撃力の倍率(blazing) */
+  /** 攻撃力の倍率(attack-up) */
   attackMul: number;
   /**
-   * 被ダメージの倍率(fortified)。
+   * 被ダメージの倍率(damage-cut)。
    * 適用範囲は通常攻撃・special-attack・special-ailment・counter の
-   * 4箇所のみです。毒/やけどのスリップダメージとステージイベント meteor の
-   * ダメージには意図的に適用しません(fortified は「攻撃」に対する防御力であり、
-   * 環境由来のダメージを軽減する効果ではないため)。
+   * 4箇所のみです。毒/やけどのスリップダメージとステージイベント damage の
+   * ダメージには意図的に適用しません(damage-cut は「攻撃」に対する防御力で
+   * あり、環境由来のダメージを軽減する効果ではないため)。
    */
   damageTakenMul: number;
-  /** クリティカル率への加算(fortunate) */
+  /** クリティカル率への加算(crit-up) */
   critRateAdd: number;
-  /** 行動後MP回復量への加算(mana-rich) */
+  /** 行動後MP回復量への加算(mp-regen-up) */
   mpRegenAdd: number;
 }
 
@@ -204,16 +204,16 @@ function buildStageModifiers(stage: BattleStage | null): StageModifiers {
     return DEFAULT_STAGE_MODIFIERS;
   }
   switch (stage.trait.id) {
-    case "blazing":
+    case "attack-up":
       return { ...DEFAULT_STAGE_MODIFIERS, attackMul: STAGE_TRAIT_ATTACK_MULTIPLIER };
-    case "fortified":
+    case "damage-cut":
       return {
         ...DEFAULT_STAGE_MODIFIERS,
         damageTakenMul: STAGE_TRAIT_DAMAGE_TAKEN_MULTIPLIER,
       };
-    case "fortunate":
+    case "crit-up":
       return { ...DEFAULT_STAGE_MODIFIERS, critRateAdd: STAGE_TRAIT_CRIT_RATE_BONUS };
-    case "mana-rich":
+    case "mp-regen-up":
       return { ...DEFAULT_STAGE_MODIFIERS, mpRegenAdd: STAGE_TRAIT_MP_REGEN_BONUS };
   }
 }
@@ -228,7 +228,7 @@ function hasPassive(state: CombatantState, id: PassiveSkillId): boolean {
   return state.character.passive?.id === id;
 }
 
-/** 強化・逆境(berserk)・やけど・ステージ特性(blazing)を反映した実効攻撃力を返します。 */
+/** 強化・逆境(berserk)・やけど・ステージ特性(attack-up)を反映した実効攻撃力を返します。 */
 function effectiveAttack(state: CombatantState, modifiers: StageModifiers): number {
   let attack = (state.character.attack + state.attackBuff) * modifiers.attackMul;
   // berserk: HPが30%以下に減っているとき攻撃力が上がります
@@ -478,7 +478,7 @@ function simulateMultiTeamBattle(
    * 効果がない対象(満タンHP/MP・状態異常の対象外など)へはイベントを発行しません。
    * announce はそのラウンドで最初に効果を受けた対象の行だけ true になります
    * (演出側で「発動した」ことを1回だけ告知するために使います)。
-   * meteor は戦闘不能を起こさないため、ここでは countLivingTeams の再判定を行いません。
+   * damage は戦闘不能を起こさないため、ここでは countLivingTeams の再判定を行いません。
    */
   function applyStageEvent(turn: number, event: StageEvent): void {
     let announced = false;
@@ -487,10 +487,8 @@ function simulateMultiTeamBattle(
         continue;
       }
       switch (event.id) {
-        case "meteor": {
-          const damage = toDamage(
-            c.character.hp * STAGE_EVENT_METEOR_DAMAGE_RATIO,
-          );
+        case "damage": {
+          const damage = toDamage(c.character.hp * STAGE_EVENT_DAMAGE_RATIO);
           const nextHp = Math.max(1, c.hp - damage);
           const actualDamage = c.hp - nextHp;
           if (actualDamage <= 0) {
@@ -507,10 +505,10 @@ function simulateMultiTeamBattle(
           announced = true;
           break;
         }
-        case "spring": {
+        case "heal": {
           const healed = Math.min(
             c.character.hp - c.hp,
-            Math.round(c.character.hp * STAGE_EVENT_SPRING_HEAL_RATIO),
+            Math.round(c.character.hp * STAGE_EVENT_HEAL_RATIO),
           );
           if (healed <= 0) {
             continue;
@@ -526,10 +524,10 @@ function simulateMultiTeamBattle(
           announced = true;
           break;
         }
-        case "mana-burst": {
+        case "mana-restore": {
           const restored = Math.min(
             c.character.mp - c.mp,
-            Math.round(c.character.mp * STAGE_EVENT_MANA_BURST_RESTORE_RATIO),
+            Math.round(c.character.mp * STAGE_EVENT_MANA_RESTORE_RATIO),
           );
           if (restored <= 0) {
             continue;
@@ -545,7 +543,7 @@ function simulateMultiTeamBattle(
           announced = true;
           break;
         }
-        case "miasma": {
+        case "ailment": {
           if (c.ailment !== null || hasPassive(c, "ailment-guard")) {
             continue;
           }

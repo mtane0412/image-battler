@@ -136,8 +136,8 @@ describe("renderStageCreate: 生成中のステータス表示", () => {
     vi.mocked(generateStageStats).mockResolvedValue({
       title: "業火の舞台",
       description: "溶岩が渦巻くステージです",
-      trait: { id: "blazing", name: "灼熱のオーラ", description: "全員の攻撃力が上がる" },
-      event: { id: "meteor", name: "隕石落とし", description: "隕石が降り注ぐ" },
+      trait: { id: "attack-up", name: "灼熱のオーラ", description: "全員の攻撃力が上がる" },
+      event: { id: "damage", name: "隕石落とし", description: "隕石が降り注ぐ" },
     });
     const screen = renderStageCreate(ctx);
     await submitForm(screen);

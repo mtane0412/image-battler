@@ -1241,13 +1241,13 @@ describe("simulateBattle: ステージ(デフォルトの無影響)", () => {
 });
 
 describe("simulateBattle: ステージ特性(常時発動・全員平等)", () => {
-  it("blazing は全員の攻撃力が1.25倍になる(先頭でイベント不発の乱数を1つ消費)", () => {
-    // 通常: 40*1.0 - 20*0.4 = 32 / blazing: 40*1.25*1.0 - 20*0.4 = 42
+  it("attack-up は全員の攻撃力が1.25倍になる(先頭でイベント不発の乱数を1つ消費)", () => {
+    // 通常: 40*1.0 - 20*0.4 = 32 / attack-up: 40*1.25*1.0 - 20*0.4 = 42
     const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
     const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("blazing"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("attack-up"),
+      event: makeStageEvent("damage"),
     });
     // [イベント不発, ミス判定, クリティカル判定, 威力補正]
     const result = simulateBattle(
@@ -1263,13 +1263,13 @@ describe("simulateBattle: ステージ特性(常時発動・全員平等)", () =
     });
   });
 
-  it("fortified は全員の被ダメージが0.75倍になる", () => {
-    // 通常: 32ダメージ → fortified: round(32 * 0.75) = 24
+  it("damage-cut は全員の被ダメージが0.75倍になる", () => {
+    // 通常: 32ダメージ → damage-cut: round(32 * 0.75) = 24
     const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
     const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("fortified"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("damage-cut"),
+      event: makeStageEvent("damage"),
     });
     const result = simulateBattle(
       攻め手,
@@ -1280,13 +1280,13 @@ describe("simulateBattle: ステージ特性(常時発動・全員平等)", () =
     expect(result.events[0]).toMatchObject({ type: "attack", damage: 24 });
   });
 
-  it("fortunate はクリティカル率に+0.15を加算する(運0でも効果がある)", () => {
-    // 運0のため通常はクリティカル率0%。fortunate加算後は15%で0.1判定が命中する
+  it("crit-up はクリティカル率に+0.15を加算する(運0でも効果がある)", () => {
+    // 運0のため通常はクリティカル率0%。crit-up加算後は15%で0.1判定が命中する
     const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
     const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("fortunate"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("crit-up"),
+      event: makeStageEvent("damage"),
     });
     const result = simulateBattle(
       攻め手,
@@ -1301,14 +1301,14 @@ describe("simulateBattle: ステージ特性(常時発動・全員平等)", () =
     });
   });
 
-  it("mana-rich は行動後のMP回復量に+10を加算する", () => {
+  it("mp-regen-up は行動後のMP回復量に+10を加算する", () => {
     // aは必殺技(mpCost30)を使ってMPを60→30に減らし、行動後の回復量で検証する
     // (最大MPが0のキャラは回復上限も0になり検証できないため、消費→回復の形にする)
     const 攻め手 = makeCharacter({ id: "a", attack: 40, defense: 20, hp: 300, mp: 60, speed: 90 });
     const 受け手 = makeCharacter({ id: "b", defense: 20, hp: 300, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
     });
     const result = simulateBattle(
       攻め手,
@@ -1321,7 +1321,7 @@ describe("simulateBattle: ステージ特性(常時発動・全員平等)", () =
       type: "special-attack",
       after: { a: { mp: 30 } },
     });
-    // 通常の行動後回復は+10だが mana-rich で+10加算され合計+20。
+    // 通常の行動後回復は+10だが mp-regen-up で+10加算され合計+20。
     // bの行動(events[1])のafterに反映される(MP回復はイベント発生の翌イベントに現れる)
     expect(result.events[1]).toMatchObject({ after: { a: { mp: 50 } } });
   });
@@ -1332,8 +1332,8 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     const a = makeCharacter({ id: "a", hp: 200, attack: 40, defense: 20, mp: 0, speed: 90 });
     const b = makeCharacter({ id: "b", hp: 200, defense: 20, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
     });
     // [イベント発動, ミス, クリット, 威力]
     const result = simulateBattle(a, b, sequenceRng([0.2, 0.5, 0.5, 0.5]), stage);
@@ -1342,7 +1342,7 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
       type: "stage-damage",
       actorId: "a",
       targetId: "a",
-      eventId: "meteor",
+      eventId: "damage",
       damage: 20,
       announce: true,
       turn: 1,
@@ -1362,20 +1362,20 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     const a = makeCharacter({ id: "a", attack: 40, defense: 20, mp: 0, speed: 90 });
     const b = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
     });
     const result = simulateBattle(a, b, sequenceRng([0.3, 0.5, 0.5, 0.5]), stage);
     expect(result.events[0]).toMatchObject({ type: "attack", turn: 1 });
     expect(result.events.some((e) => e.type === "stage-damage")).toBe(false);
   });
 
-  it("meteor は生存者全員にダメージを与えるがHP1未満にはならない(非致死)", () => {
+  it("damage は生存者全員にダメージを与えるがHP1未満にはならない(非致死)", () => {
     const 瀕死 = makeCharacter({ id: "a", hp: 1, mp: 0, speed: 90 });
     const 健康 = makeCharacter({ id: "b", hp: 200, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
     });
     const result = simulateBattle(
       瀕死,
@@ -1399,8 +1399,8 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     const a = makeCharacter({ id: "a", hp: 200, mp: 0, speed: 90 });
     const b = makeCharacter({ id: "b", hp: 200, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("spring"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("heal"),
     });
     const result = simulateBattle(
       a,
@@ -1415,8 +1415,8 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     const a = makeCharacter({ id: "a", hp: 200, attack: 40, defense: 20, mp: 0, speed: 90 });
     const b = makeCharacter({ id: "b", hp: 200, attack: 40, defense: 20, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("spring"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("heal"),
     });
     const result = simulateBattle(
       a,
@@ -1443,12 +1443,12 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     });
   });
 
-  it("mana-burst は満タンMPの対象には効果がなくイベントも出ない", () => {
+  it("mana-restore は満タンMPの対象には効果がなくイベントも出ない", () => {
     const a = makeCharacter({ id: "a", mp: 60, speed: 90 });
     const b = makeCharacter({ id: "b", mp: 60, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("mana-burst"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("mana-restore"),
     });
     const result = simulateBattle(
       a,
@@ -1459,14 +1459,14 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     expect(result.events.some((e) => e.type === "stage-mp")).toBe(false);
   });
 
-  it("mana-burst はMPが減っている対象の最大MPの半分を回復する", () => {
+  it("mana-restore はMPが減っている対象の最大MPの半分を回復する", () => {
     // 両者に必殺技(mpCost30)を使わせてMPを60→30に減らし、
-    // 行動後回復(+10)で40まで戻った状態からmana-burstの効果を検証する
+    // 行動後回復(+10)で40まで戻った状態からmana-restoreの効果を検証する
     const a = makeCharacter({ id: "a", attack: 40, defense: 20, hp: 300, mp: 60, speed: 90 });
     const b = makeCharacter({ id: "b", attack: 40, defense: 20, hp: 300, mp: 60, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("fortified"),
-      event: makeStageEvent("mana-burst"),
+      trait: makeStageTrait("damage-cut"),
+      event: makeStageEvent("mana-restore"),
     });
     const result = simulateBattle(
       a,
@@ -1474,7 +1474,7 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
       sequenceRng([
         // ラウンド1: イベント不発 → aの必殺技(発動) → bの必殺技(発動)
         0.9, 0.1, 0.5, 0.1, 0.5,
-        // ラウンド2: イベント発動(mana-burst)
+        // ラウンド2: イベント発動(mana-restore)
         0.2,
       ]),
       stage,
@@ -1494,12 +1494,12 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     });
   });
 
-  it("miasma は状態異常でない生存者全員をやけど状態にする", () => {
+  it("ailment は状態異常でない生存者全員をやけど状態にする", () => {
     const a = makeCharacter({ id: "a", mp: 0, speed: 90 });
     const b = makeCharacter({ id: "b", mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("miasma"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("ailment"),
     });
     const result = simulateBattle(
       a,
@@ -1523,7 +1523,7 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     });
   });
 
-  it("miasma は ailment-guard 持ちには効果がない", () => {
+  it("ailment(状態異常)イベントは ailment-guard 持ちには効果がない", () => {
     const 免疫持ち = makeCharacter({
       id: "a",
       mp: 0,
@@ -1532,8 +1532,8 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     });
     const 通常 = makeCharacter({ id: "b", mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("miasma"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("ailment"),
     });
     const result = simulateBattle(
       免疫持ち,
@@ -1549,13 +1549,13 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
   });
 
   it("ステージイベントが毎ラウンド発動してもクラッシュせずに決着する(非致死の担保)", () => {
-    // 両者ともHPが低く、meteorが毎ラウンド発動してHP1まで削るが、
+    // 両者ともHPが低く、damageが毎ラウンド発動してHP1まで削るが、
     // 通常攻撃でどちらかのHPが0になるまでクラッシュせず継続できることを確認する
     const a = makeCharacter({ id: "a", hp: 5, attack: 1, defense: 100, mp: 0, speed: 90 });
     const b = makeCharacter({ id: "b", hp: 5, attack: 1, defense: 100, mp: 0, speed: 30 });
     const stage = makeBattleStage({
-      trait: makeStageTrait("mana-rich"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("damage"),
     });
     // 各ラウンド: [イベント発動, aのミス判定, aのクリット判定, aの威力補正,
     //             bのミス判定, bのクリット判定, bの威力補正]

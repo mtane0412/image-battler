@@ -156,14 +156,14 @@ function validStageJson(): string {
     title: "灼熱の闘技場",
     description: "溶岩が渦巻く、灼熱に包まれたステージです",
     trait: {
-      // 乱数0の抽選候補(blazing / fortified)の先頭を選んだ想定
-      id: "blazing",
+      // 乱数0の抽選候補(attack-up / damage-cut)の先頭を選んだ想定
+      id: "attack-up",
       name: "灼熱のオーラ",
       description: "全員の攻撃力が上がる",
     },
     event: {
-      // 乱数0の抽選候補(meteor / spring)の先頭を選んだ想定
-      id: "meteor",
+      // 乱数0の抽選候補(damage / heal)の先頭を選んだ想定
+      id: "damage",
       name: "隕石落とし",
       description: "隕石が降り注ぎ全員がダメージを受ける",
     },
@@ -195,7 +195,7 @@ describe("generateStageStats", () => {
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });
 
-    // 乱数0を注入すると特性候補は[blazing, fortified]、イベント候補は[meteor, spring]になる
+    // 乱数0を注入すると特性候補は[attack-up, damage-cut]、イベント候補は[damage, heal]になる
     const stage = await generateStageStats(
       session,
       "灼熱の闘技場",
@@ -204,8 +204,8 @@ describe("generateStageStats", () => {
     );
 
     expect(stage.title).toBe("灼熱の闘技場");
-    expect(stage.trait.id).toBe("blazing");
-    expect(stage.event.id).toBe("meteor");
+    expect(stage.trait.id).toBe("attack-up");
+    expect(stage.event.id).toBe("damage");
     const [messages, options] = prompt.mock.calls[0] as [
       LanguageModelMessage[],
       LanguageModelPromptOptions,
@@ -234,22 +234,22 @@ describe("generateStageStats", () => {
     ];
     // プロンプトには抽選候補だけが提示され、候補外のidは含まれない
     const promptText = JSON.stringify(messages);
-    expect(promptText).toContain("blazing");
-    expect(promptText).toContain("fortified");
-    expect(promptText).not.toContain("mana-rich");
+    expect(promptText).toContain("attack-up");
+    expect(promptText).toContain("damage-cut");
+    expect(promptText).not.toContain("mp-regen-up");
     // JSON Schema の enum も抽選候補に制約される
     const constraint = options.responseConstraint as {
       properties: { trait: { properties: { id: { enum: string[] } } } };
     };
     expect(constraint.properties.trait.properties.id.enum).toEqual([
-      "blazing",
-      "fortified",
+      "attack-up",
+      "damage-cut",
     ]);
   });
 
   it("候補にない特性idをモデルが返した場合はエラーになる(Fail-Fast)", async () => {
-    // 乱数0.99の抽選候補は特性[mana-rich, fortunate]、イベント[miasma, mana-burst]。
-    // モデル出力(blazing)は候補外のため拒否される
+    // 乱数0.99の抽選候補は特性[mp-regen-up, crit-up]、イベント[ailment, mana-restore]。
+    // モデル出力(attack-up)は候補外のため拒否される
     const prompt = vi.fn().mockResolvedValue(validStageJson());
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });

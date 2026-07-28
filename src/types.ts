@@ -134,19 +134,27 @@ export interface PassiveSkill {
 /**
  * ステージ特性の種類です。効果はバトルエンジンに実装済みで、
  * AI は画像に合うものを選んで固有名を付けます。全員に平等にかかる「場の効果」です。
- * - blazing: 全員の攻撃力が上がる
- * - fortified: 全員の被ダメージが下がる
- * - fortunate: 全員のクリティカル率が上がる
- * - mana-rich: 全員の毎ターンMP回復量が上がる
+ * id は効果の性質だけを表す抽象的な分類で、具体的なテーマ(炎・氷・光など)には
+ * 一切踏み込みません(id自体が「隕石」「炎」のような具体的なテーマ名だと、
+ * AI が選べる世界観がそのテーマに引っ張られてしまうため)。テーマ・固有名は
+ * name/description として AI が画像から自由に発想します。
+ * - attack-up: 全員の攻撃力が上がる
+ * - damage-cut: 全員の被ダメージが下がる
+ * - crit-up: 全員のクリティカル率が上がる
+ * - mp-regen-up: 全員の毎ターンMP回復量が上がる
  */
-export type StageTraitId = "blazing" | "fortified" | "fortunate" | "mana-rich";
+export type StageTraitId =
+  | "attack-up"
+  | "damage-cut"
+  | "crit-up"
+  | "mp-regen-up";
 
 /** ステージ特性の種類一覧です(検証・表示で使用します)。 */
 export const STAGE_TRAIT_IDS = [
-  "blazing",
-  "fortified",
-  "fortunate",
-  "mana-rich",
+  "attack-up",
+  "damage-cut",
+  "crit-up",
+  "mp-regen-up",
 ] as const satisfies readonly StageTraitId[];
 
 /**
@@ -154,10 +162,10 @@ export const STAGE_TRAIT_IDS = [
  * ステージ生成プロンプトの候補提示と、効果の説明表示に共用します。
  */
 export const STAGE_TRAIT_SUMMARIES = {
-  blazing: "全員の攻撃力が上がる",
-  fortified: "全員の被ダメージが下がる",
-  fortunate: "全員の会心率が上がる",
-  "mana-rich": "全員のMP回復が速い",
+  "attack-up": "全員の攻撃力が上がる",
+  "damage-cut": "全員の被ダメージが下がる",
+  "crit-up": "全員の会心率が上がる",
+  "mp-regen-up": "全員のMP回復が速い",
 } as const satisfies Record<StageTraitId, string>;
 
 /** ステージ特性です。効果(id)はエンジン実装済み、名前はAIが付けます。 */
@@ -173,38 +181,44 @@ export interface StageTrait {
 /**
  * ステージ特殊イベントの種類です。ラウンド開始時に一定確率で発動し、
  * 生存者全員に平等な効果を与えます。効果量はエンジンに実装済みで、
- * AI は画像に合うものを選んで固有名を付けます。
- * - meteor: 生存者全員がダメージを受ける(戦闘不能にはならない)
- * - spring: 生存者全員のHPが少し回復する
- * - mana-burst: 生存者全員のMPが大きく回復する
- * - miasma: 状態異常でない生存者全員がやけど状態になる
+ * AI は画像に合うものを選んで固有名を付けます。id は効果の性質だけを表す
+ * 抽象的な分類で、具体的なテーマ(隕石・炎・瘴気など)には踏み込みません
+ * (StageTraitId と同じ理由です)。テーマ・固有名は name/description として
+ * AI が画像から自由に発想します(例: id="damage" に対して火山の画像なら
+ * 「マグマの雨」、雷雲の画像なら「稲妻の裁き」のように)。
+ * - damage: 生存者全員がダメージを受ける(戦闘不能にはならない)
+ * - heal: 生存者全員のHPが少し回復する
+ * - mana-restore: 生存者全員のMPが大きく回復する
+ * - ailment: 状態異常でない生存者全員がやけど状態になる
  */
-export type StageEventId = "meteor" | "spring" | "mana-burst" | "miasma";
+export type StageEventId = "damage" | "heal" | "mana-restore" | "ailment";
 
 /** ステージ特殊イベントの種類一覧です(検証・表示で使用します)。 */
 export const STAGE_EVENT_IDS = [
-  "meteor",
-  "spring",
-  "mana-burst",
-  "miasma",
+  "damage",
+  "heal",
+  "mana-restore",
+  "ailment",
 ] as const satisfies readonly StageEventId[];
 
 /**
  * ステージ特殊イベントの効果の短い要約です。
  * ステージ生成プロンプトの候補提示と、効果の説明表示に共用します。
+ * 具体的なテーマ(隕石・泉など)には触れず、効果の性質だけを説明します
+ * (テーマは AI が name/description で自由に発想するため)。
  */
 export const STAGE_EVENT_SUMMARIES = {
-  meteor: "全員にダメージを与える隕石が降る",
-  spring: "全員のHPを少し回復する泉がわく",
-  "mana-burst": "全員のMPを大きく回復する魔力があふれる",
-  miasma: "全員をやけど状態にする瘴気が立ちこめる",
+  damage: "生存者全員にダメージを与える",
+  heal: "生存者全員のHPを少し回復する",
+  "mana-restore": "生存者全員のMPを大きく回復する",
+  ailment: "状態異常でない生存者全員をやけど状態にする",
 } as const satisfies Record<StageEventId, string>;
 
 /** ステージ特殊イベントです。効果(id)はエンジン実装済み、名前はAIが付けます。 */
 export interface StageEvent {
   /** 効果の種類(エンジンが解釈するID) */
   id: StageEventId;
-  /** AIが付けた固有名(例:「隕石落とし」) */
+  /** AIが付けた固有名(例:「隕石落とし」「稲妻の裁き」) */
   name: string;
   /** 効果の紹介文 */
   description: string;

@@ -115,14 +115,14 @@ export function makeStageEvent(
 
 /**
  * テスト用のバトルステージ(エンジンが受け取る最小形)を生成します。
- * 既定では特性 blazing・イベント meteor です。
+ * 既定では特性 attack-up・イベント damage です。
  */
 export function makeBattleStage(
   overrides: Partial<{ trait: StageTrait; event: StageEvent }> = {},
 ): BattleStage {
   return {
-    trait: makeStageTrait("blazing"),
-    event: makeStageEvent("meteor"),
+    trait: makeStageTrait("attack-up"),
+    event: makeStageEvent("damage"),
     ...overrides,
   };
 }
@@ -137,8 +137,8 @@ export function makeStage(overrides: Partial<Stage> = {}): Stage {
     name: "テストステージ",
     title: "試験の闘技場",
     description: "テスト用のステージです",
-    trait: makeStageTrait("blazing"),
-    event: makeStageEvent("meteor"),
+    trait: makeStageTrait("attack-up"),
+    event: makeStageEvent("damage"),
     imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
     createdAt: "2026-07-27T00:00:00.000Z",
     ...overrides,

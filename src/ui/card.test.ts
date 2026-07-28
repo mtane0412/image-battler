@@ -72,8 +72,8 @@ describe("stageCard", () => {
       name: "灼熱の闘技場",
       title: "業火の舞台",
       description: "溶岩が渦巻く、灼熱に包まれたステージです",
-      trait: makeStageTrait("blazing"),
-      event: makeStageEvent("meteor"),
+      trait: makeStageTrait("attack-up"),
+      event: makeStageEvent("damage"),
       imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
     });
     expect(card.querySelector(".stage-card-name")?.textContent).toBe(
@@ -94,11 +94,11 @@ describe("stageCard", () => {
       name: "灼熱の闘技場",
       title: "業火の舞台",
       description: "説明",
-      trait: makeStageTrait("blazing", {
+      trait: makeStageTrait("attack-up", {
         name: "灼熱のオーラ",
         description: "全員の攻撃力が上がる",
       }),
-      event: makeStageEvent("meteor"),
+      event: makeStageEvent("damage"),
       imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
     });
     expect(card.querySelector(".stage-card-trait-name")?.textContent).toBe(
@@ -114,8 +114,8 @@ describe("stageCard", () => {
       name: "灼熱の闘技場",
       title: "業火の舞台",
       description: "説明",
-      trait: makeStageTrait("blazing"),
-      event: makeStageEvent("meteor", {
+      trait: makeStageTrait("attack-up"),
+      event: makeStageEvent("damage", {
         name: "隕石落とし",
         description: "隕石が降り注ぎ全員がダメージを受ける",
       }),

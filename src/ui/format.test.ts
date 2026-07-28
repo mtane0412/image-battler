@@ -166,7 +166,7 @@ describe("describeEvent", () => {
     const text = describeEvent(
       makeEvent({
         type: "stage-damage",
-        eventId: "meteor",
+        eventId: "damage",
         eventName: "隕石落とし",
         announce: true,
         damage: 20,
@@ -182,7 +182,7 @@ describe("describeEvent", () => {
     const text = describeEvent(
       makeEvent({
         type: "stage-damage",
-        eventId: "meteor",
+        eventId: "damage",
         eventName: "隕石落とし",
         announce: false,
         damage: 20,
@@ -198,7 +198,7 @@ describe("describeEvent", () => {
     const text = describeEvent(
       makeEvent({
         type: "stage-heal",
-        eventId: "spring",
+        eventId: "heal",
         eventName: "いやしの泉",
         announce: true,
         healed: 20,
@@ -214,7 +214,7 @@ describe("describeEvent", () => {
     const text = describeEvent(
       makeEvent({
         type: "stage-mp",
-        eventId: "mana-burst",
+        eventId: "mana-restore",
         eventName: "魔力の奔流",
         announce: false,
         restored: 30,
@@ -229,7 +229,7 @@ describe("describeEvent", () => {
     const text = describeEvent(
       makeEvent({
         type: "stage-ailment",
-        eventId: "miasma",
+        eventId: "ailment",
         eventName: "瘴気だまり",
         announce: true,
         ailment: "burn",

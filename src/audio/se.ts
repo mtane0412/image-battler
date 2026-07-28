@@ -127,10 +127,10 @@ const AILMENT_SE_KEYS = {
  * ステージ機能のために新規素材(npm run fetch:se)を追加する必要はありません。
  */
 const STAGE_EVENT_SE_KEYS = {
-  meteor: "special-quake",
-  spring: "special-holy",
-  "mana-burst": "special-thunder",
-  miasma: "special-dark",
+  damage: "special-quake",
+  heal: "special-holy",
+  "mana-restore": "special-thunder",
+  ailment: "special-dark",
 } as const satisfies Record<StageEventId, SeKey>;
 
 /**

@@ -28,15 +28,15 @@ describe("sampleStageCandidates", () => {
 
   it("乱数0を注入すると各一覧の先頭から順に選ばれる(特性→イベントの順に消費、決定論的)", () => {
     const candidates = sampleStageCandidates(sequenceRng([0, 0, 0, 0]));
-    expect(candidates.traits).toEqual(["blazing", "fortified"]);
-    expect(candidates.events).toEqual(["meteor", "spring"]);
+    expect(candidates.traits).toEqual(["attack-up", "damage-cut"]);
+    expect(candidates.events).toEqual(["damage", "heal"]);
   });
 
   it("乱数の値によって選ばれる候補が変わる", () => {
     // 0.99 では毎回、残っている候補の末尾が選ばれる
     const candidates = sampleStageCandidates(sequenceRng([0.99, 0.99, 0.99, 0.99]));
-    expect(candidates.traits).toEqual(["mana-rich", "fortunate"]);
-    expect(candidates.events).toEqual(["miasma", "mana-burst"]);
+    expect(candidates.traits).toEqual(["mp-regen-up", "crit-up"]);
+    expect(candidates.events).toEqual(["ailment", "mana-restore"]);
   });
 
   it("乱数が範囲外([0,1)以外)の値を返す場合はエラーになる(Fail-Fast)", () => {

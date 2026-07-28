@@ -172,10 +172,10 @@ describe("seKeyForEvent", () => {
 
   it("ステージ特殊イベントはイベントIDごとに固定の効果音になる(既存素材を流用)", () => {
     const cases = [
-      { type: "stage-damage", eventId: "meteor", expected: "special-quake" },
-      { type: "stage-heal", eventId: "spring", expected: "special-holy" },
-      { type: "stage-mp", eventId: "mana-burst", expected: "special-thunder" },
-      { type: "stage-ailment", eventId: "miasma", expected: "special-dark" },
+      { type: "stage-damage", eventId: "damage", expected: "special-quake" },
+      { type: "stage-heal", eventId: "heal", expected: "special-holy" },
+      { type: "stage-mp", eventId: "mana-restore", expected: "special-thunder" },
+      { type: "stage-ailment", eventId: "ailment", expected: "special-dark" },
     ] as const;
     for (const { type, eventId, expected } of cases) {
       const payload: BattleEventPayload =

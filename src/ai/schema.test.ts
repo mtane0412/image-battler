@@ -312,8 +312,8 @@ describe("parseGeneratedStats", () => {
 });
 
 /** テストで使う抽選済みステージ候補です(validStagePayload のidを含みます)。 */
-const 許可特性候補 = ["blazing", "fortified"] as const;
-const 許可イベント候補 = ["meteor", "spring"] as const;
+const 許可特性候補 = ["attack-up", "damage-cut"] as const;
+const 許可イベント候補 = ["damage", "heal"] as const;
 
 /** 正常なステージ生成モデル出力のサンプルを生成します。 */
 function validStagePayload(): Record<string, unknown> {
@@ -321,12 +321,12 @@ function validStagePayload(): Record<string, unknown> {
     title: "灼熱の闘技場",
     description: "溶岩が渦巻く、灼熱に包まれたステージです",
     trait: {
-      id: "blazing",
+      id: "attack-up",
       name: "灼熱のオーラ",
       description: "全員の攻撃力が上がる",
     },
     event: {
-      id: "meteor",
+      id: "damage",
       name: "隕石落とし",
       description: "隕石が降り注ぎ全員がダメージを受ける",
     },
@@ -348,12 +348,12 @@ describe("buildStageGenerationSchema", () => {
   it("特性・イベントのidは渡した候補だけがenumに制約される", () => {
     const schema = buildStageGenerationSchema(許可特性候補, 許可イベント候補);
     expect(schema.properties.trait.properties.id.enum).toEqual([
-      "blazing",
-      "fortified",
+      "attack-up",
+      "damage-cut",
     ]);
     expect(schema.properties.event.properties.id.enum).toEqual([
-      "meteor",
-      "spring",
+      "damage",
+      "heal",
     ]);
   });
 
@@ -378,9 +378,9 @@ describe("parseGeneratedStage", () => {
       許可イベント候補,
     );
     expect(stage.title).toBe("灼熱の闘技場");
-    expect(stage.trait.id).toBe("blazing");
+    expect(stage.trait.id).toBe("attack-up");
     expect(stage.trait.name).toBe("灼熱のオーラ");
-    expect(stage.event.id).toBe("meteor");
+    expect(stage.event.id).toBe("damage");
     expect(stage.event.name).toBe("隕石落とし");
   });
 
@@ -406,17 +406,17 @@ describe("parseGeneratedStage", () => {
     ).toThrow(StageParseError);
   });
 
-  it("定義済みでも候補にない特性id(fortunate)を拒否する", () => {
+  it("定義済みでも候補にない特性id(crit-up)を拒否する", () => {
     const payload = validStagePayload();
-    (payload.trait as Record<string, unknown>).id = "fortunate";
+    (payload.trait as Record<string, unknown>).id = "crit-up";
     expect(() =>
       parseGeneratedStage(JSON.stringify(payload), 許可特性候補, 許可イベント候補),
     ).toThrow(StageParseError);
   });
 
-  it("定義済みでも候補にないイベントid(miasma)を拒否する", () => {
+  it("定義済みでも候補にないイベントid(ailment)を拒否する", () => {
     const payload = validStagePayload();
-    (payload.event as Record<string, unknown>).id = "miasma";
+    (payload.event as Record<string, unknown>).id = "ailment";
     expect(() =>
       parseGeneratedStage(JSON.stringify(payload), 許可特性候補, 許可イベント候補),
     ).toThrow(StageParseError);
