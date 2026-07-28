@@ -741,21 +741,28 @@ export function renderBattle(
     logWindow.append(line);
     logWindow.scrollTop = logWindow.scrollHeight;
     if (!reducedMotion && !document.hidden) {
-      const chars = [...text];
-      const startedAt = performance.now();
-      let shown = 0;
-      while (shown < chars.length) {
-        if (aborted || document.hidden) {
-          break;
+      // メッセージが流れている間だけ表示音をループ再生し、流れ終わったら止めます
+      // (長文でも音が途切れず、表示完了と同時に音も終わります)
+      const stopMessageSe = sePlayer.playLoop("message");
+      try {
+        const chars = [...text];
+        const startedAt = performance.now();
+        let shown = 0;
+        while (shown < chars.length) {
+          if (aborted || document.hidden) {
+            break;
+          }
+          await pacedWait(TYPE_INTERVAL_MS);
+          const elapsed = performance.now() - startedAt;
+          shown = Math.max(
+            shown + 1,
+            Math.min(chars.length, Math.floor(elapsed / TYPE_INTERVAL_MS)),
+          );
+          body.textContent = chars.slice(0, shown).join("");
+          logWindow.scrollTop = logWindow.scrollHeight;
         }
-        await pacedWait(TYPE_INTERVAL_MS);
-        const elapsed = performance.now() - startedAt;
-        shown = Math.max(
-          shown + 1,
-          Math.min(chars.length, Math.floor(elapsed / TYPE_INTERVAL_MS)),
-        );
-        body.textContent = chars.slice(0, shown).join("");
-        logWindow.scrollTop = logWindow.scrollHeight;
+      } finally {
+        stopMessageSe();
       }
     }
     body.textContent = text;

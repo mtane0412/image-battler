@@ -174,6 +174,12 @@ export interface SePlayer {
   preload(): void;
   /** 指定キーの効果音を再生します。失敗してもゲーム進行を止めません。 */
   play(key: SeKey): void;
+  /**
+   * 指定キーの効果音をループ再生し、停止関数を返します。
+   * メッセージ表示音など「演出が続いている間だけ鳴らす」用途で使用します。
+   * 失敗してもゲーム進行を止めません(停止関数は常に安全に呼べます)。
+   */
+  playLoop(key: SeKey): () => void;
 }
 
 /**
@@ -203,6 +209,25 @@ export function createSePlayer(
     return audio;
   }
 
+  /**
+   * 複製したAudioで再生を開始し、その複製を返します。
+   * 効果音は演出であり、再生に失敗してもバトル進行を止めません
+   * (明示的フォールバック: 警告ログのみ出力します)。
+   */
+  function playClone(key: SeKey, loop: boolean): HTMLAudioElement {
+    // cloneNode の戻り値型は Node のためアサーションが必要です
+    const clone = ensureAudio(key).cloneNode(true) as HTMLAudioElement;
+    clone.loop = loop;
+    clone.volume = SE_VOLUME;
+    clone.play().catch((error: unknown) => {
+      console.warn(
+        `効果音「${key}」を再生できませんでした(ゲーム進行には影響しません)`,
+        error,
+      );
+    });
+    return clone;
+  }
+
   return {
     preload(): void {
       for (const key of Object.keys(seManifest)) {
@@ -213,16 +238,17 @@ export function createSePlayer(
       if (document.hidden) {
         return;
       }
-      // cloneNode の戻り値型は Node のためアサーションが必要です
-      const clone = ensureAudio(key).cloneNode(true) as HTMLAudioElement;
-      clone.volume = SE_VOLUME;
-      clone.play().catch((error: unknown) => {
-        // 効果音は演出であり、失敗してもバトル進行を止めません(明示的フォールバック)
-        console.warn(
-          `効果音「${key}」を再生できませんでした(ゲーム進行には影響しません)`,
-          error,
-        );
-      });
+      playClone(key, false);
+    },
+    playLoop(key: SeKey): () => void {
+      if (document.hidden) {
+        // タブ非表示時は再生しないため、停止関数も何もしません
+        return () => {};
+      }
+      const clone = playClone(key, true);
+      return () => {
+        clone.pause();
+      };
     },
   };
 }
