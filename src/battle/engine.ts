@@ -176,7 +176,13 @@ const STAGE_EVENT_MANA_BURST_RESTORE_RATIO = 1 / 2;
 interface StageModifiers {
   /** 攻撃力の倍率(blazing) */
   attackMul: number;
-  /** 被ダメージの倍率(fortified) */
+  /**
+   * 被ダメージの倍率(fortified)。
+   * 適用範囲は通常攻撃・special-attack・special-ailment・counter の
+   * 4箇所のみです。毒/やけどのスリップダメージとステージイベント meteor の
+   * ダメージには意図的に適用しません(fortified は「攻撃」に対する防御力であり、
+   * 環境由来のダメージを軽減する効果ではないため)。
+   */
   damageTakenMul: number;
   /** クリティカル率への加算(fortunate) */
   critRateAdd: number;

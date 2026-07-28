@@ -119,7 +119,7 @@ function writeAll(stages: Stage[], storage: Storage): void {
     );
   } catch (error) {
     throw new StorageError(
-      `ステージの保存に失敗しました。localStorage の容量超過の可能性があります(保存済み: ${stages.length - 1}件)。原因: ${String(error)}`,
+      `ステージの保存に失敗しました。localStorage の容量超過の可能性があります(保存件数: ${stages.length}件)。原因: ${String(error)}`,
     );
   }
 }
