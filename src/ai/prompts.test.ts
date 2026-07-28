@@ -9,9 +9,13 @@ import {
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
+  buildRoyaleIntroPrompt,
+  buildRoyaleResultPrompt,
+  buildRoyaleStoryPrompt,
   buildSpecialMoveSpeechPrompt,
   buildStoryPrompt,
   buildVictorySpeechPrompt,
+  formatOpponentsLabel,
 } from "./prompts";
 
 describe("buildCharacterPrompt", () => {
@@ -339,5 +343,82 @@ describe("buildIntroPrompt / buildResultPrompt", () => {
   it("引き分けの場合はその旨が伝わる情報を含む", () => {
     const prompt = buildResultPrompt("もふ吉", "がぶ太", true);
     expect(prompt).toContain("引き分け");
+  });
+});
+
+describe("formatOpponentsLabel", () => {
+  it("相手が1人のときは名前をそのまま返す", () => {
+    expect(formatOpponentsLabel(["がぶ太"])).toBe("がぶ太");
+  });
+
+  it("相手が2人のときは「と」でつなぐ(1v1・2v2の従来表記と同じ)", () => {
+    expect(formatOpponentsLabel(["がぶ太", "ぴよ助"])).toBe("がぶ太とぴよ助");
+  });
+
+  it("相手が3人以上のときは「先頭たちn人」に丸めて文字列長を抑える", () => {
+    // バトルロイヤルでは相手が最大9人になり得るため、プロンプト長を有界にする
+    expect(
+      formatOpponentsLabel(["がぶ太", "ぴよ助", "くろ丸", "ぽん吉"]),
+    ).toBe("がぶ太たち4人");
+  });
+
+  it("相手が0人はデータ不正なのでエラーになる(Fail-Fast)", () => {
+    expect(() => formatOpponentsLabel([])).toThrow(/相手/);
+  });
+});
+
+describe("buildRoyaleStoryPrompt / buildRoyaleIntroPrompt / buildRoyaleResultPrompt", () => {
+  const fighters = [
+    { name: "もふ吉", title: "深淵の眠り猫", description: "よく寝る猫の戦士です" },
+    { name: "がぶ太", title: "鋼鉄の甘噛み犬", description: "なんでも噛んでしまう犬の騎士です" },
+    { name: "ぴよ助", title: "疾風のひよこ", description: "すばしっこいひよこの剣士です" },
+  ];
+  const ingredients = { stage: "満月の廃神殿", relation: "宿命のライバル" };
+
+  it("前口上には全員の名前・二つ名・紹介文と、人数・バトルロイヤルであることが含まれる", () => {
+    const prompt = buildRoyaleStoryPrompt(fighters, ingredients);
+    for (const fighter of fighters) {
+      expect(prompt).toContain(fighter.name);
+      expect(prompt).toContain(fighter.title);
+      expect(prompt).toContain(fighter.description);
+    }
+    expect(prompt).toContain("3人");
+    expect(prompt).toContain("バトルロイヤル");
+  });
+
+  it("前口上には舞台・因縁とネタバレ禁止指示が含まれ、チームのコーナー色は含まれない", () => {
+    const prompt = buildRoyaleStoryPrompt(fighters, ingredients);
+    expect(prompt).toContain("満月の廃神殿");
+    expect(prompt).toContain("宿命のライバル");
+    expect(prompt).toContain("勝敗");
+    // 完全FFAにはチーム(青/赤コーナー)の概念がない
+    expect(prompt).not.toContain("青コーナー");
+    expect(prompt).not.toContain("赤コーナー");
+  });
+
+  it("開始実況には全員の名前・二つ名と、人数・バトルロイヤルであることが含まれる", () => {
+    const prompt = buildRoyaleIntroPrompt(
+      fighters.map(({ name, title }) => ({ name, title })),
+    );
+    for (const fighter of fighters) {
+      expect(prompt).toContain(fighter.name);
+      expect(prompt).toContain(fighter.title);
+    }
+    expect(prompt).toContain("3人");
+    expect(prompt).toContain("バトルロイヤル");
+    expect(prompt).not.toContain("青コーナー");
+  });
+
+  it("結果実況には勝者の名前と人数・バトルロイヤルであることが含まれる", () => {
+    const prompt = buildRoyaleResultPrompt("もふ吉", 5);
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("5人");
+    expect(prompt).toContain("バトルロイヤル");
+  });
+
+  it("引き分けの場合はその旨が伝わる情報を含む", () => {
+    const prompt = buildRoyaleResultPrompt(null, 4);
+    expect(prompt).toContain("引き分け");
+    expect(prompt).toContain("4人");
   });
 });

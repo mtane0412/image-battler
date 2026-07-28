@@ -102,6 +102,75 @@ export function buildStoryPrompt(
   ].join("\n");
 }
 
+/**
+ * 対戦相手の名前一覧を、セリフ用プロンプトに埋め込む1つのラベルへ整形します。
+ * バトルロイヤルでは相手が最大9人になり得るため、3人以上は「先頭たちn人」に
+ * 丸めて文字列長を有界にします(2人までは1v1・2v2の従来表記と同じです)。
+ */
+export function formatOpponentsLabel(names: readonly string[]): string {
+  const head = names[0];
+  if (head === undefined) {
+    throw new Error("相手の名前が1人分もありません");
+  }
+  if (names.length <= 2) {
+    return names.join("と");
+  }
+  return `${head}たち${names.length}人`;
+}
+
+/** バトルロイヤルの参加者1人分のエントリー行(番号・二つ名・名前)を組み立てます。 */
+function entryLine(
+  index: number,
+  fighter: { name: string; title: string },
+): string {
+  return `エントリーNo.${index + 1}:「${fighter.title}」こと ${fighter.name}`;
+}
+
+/**
+ * バトルロイヤル(完全FFA)の前口上用プロンプトを組み立てます。
+ * チーム(青/赤コーナー)の概念がないため、参加者をエントリー番号で列挙します。
+ * 前口上はバトル再生前に表示するため、勝敗のネタバレを明示的に禁止します。
+ */
+export function buildRoyaleStoryPrompt(
+  fighters: readonly StoryFighter[],
+  ingredients: StoryIngredients,
+): string {
+  return [
+    `これから始まる${fighters.length}人参加のバトルロイヤル(全員が敵同士)の前口上を2〜3文で書いてください。`,
+    `舞台: ${ingredients.stage}`,
+    `参加者どうしの関係: ${ingredients.relation}`,
+    ...fighters.map(
+      (fighter, index) =>
+        `${entryLine(index, fighter)}。${fighter.description}`,
+    ),
+    "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
+  ].join("\n");
+}
+
+/** バトルロイヤル開始時の煽り実況用プロンプトを組み立てます。 */
+export function buildRoyaleIntroPrompt(
+  fighters: readonly { name: string; title: string }[],
+): string {
+  return [
+    `これから${fighters.length}人参加のバトルロイヤル(全員が敵同士)が始まります。開始の煽り実況をしてください。`,
+    ...fighters.map((fighter, index) => entryLine(index, fighter)),
+  ].join("\n");
+}
+
+/**
+ * バトルロイヤル終了時の実況用プロンプトを組み立てます。
+ * winnerName が null の場合は引き分けとして締めます。
+ */
+export function buildRoyaleResultPrompt(
+  winnerName: string | null,
+  fighterCount: number,
+): string {
+  if (winnerName === null) {
+    return `${fighterCount}人のバトルロイヤルは決着がつかず引き分けに終わりました。締めの実況をしてください。`;
+  }
+  return `${winnerName}が${fighterCount}人のバトルロイヤルを制して最後の1人になりました。勝者を称える締めの実況をしてください。`;
+}
+
 /** 必殺技セリフ生成セッションのシステムプロンプトです。 */
 export const SPEECH_SYSTEM_PROMPT = [
   "あなたは対戦ゲームのキャラクターになりきってセリフを作る脚本家です。",

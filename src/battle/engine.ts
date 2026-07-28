@@ -2,14 +2,17 @@
  * @file バトルエンジンです。ゲームの状態管理・進行ロジックはすべて
  * この JavaScript(TypeScript)側で決定論的に計算します(AIはバトル結果に関与しません)。
  *
- * チーム戦(simulateTeamBattle)を基本とし、1対1(simulateBattle)は
- * チームサイズ1の特殊ケースとして同じエンジンで処理します。
+ * Nチーム対応のコアエンジン(simulateMultiTeamBattle)を基本とし、
+ * チーム戦(simulateTeamBattle)は2チーム、1対1(simulateBattle)はチームサイズ1、
+ * バトルロイヤル(simulateRoyale)は「各1体のNチーム」の特殊ケースとして
+ * 同じエンジンで処理します。
  *
  * 主な仕様:
  * - ラウンド制: 全キャラクターがバトル開始時に決めた行動順で1ラウンドに1回ずつ行動します
  * - 行動順: first-strike 持ち優先 → 素早さ降順。倒れたキャラクターの枠はスキップします
- * - 攻撃対象: 通常攻撃・攻撃必殺技は生存する相手チームから無作為に選びます
- * - 決着: 相手チームの全員を倒したチームの勝ちです
+ * - 攻撃対象: 通常攻撃・攻撃必殺技は生存する他チームのメンバー全員から無作為に選びます
+ *   (バトルロイヤルでは「生存する自分以外の全員」になります)
+ * - 決着: 生存チームが1つになった時点でそのチームの勝ちです
  * - 必殺技はMPを消費し、MPは自分の行動後に一定量回復します
  * - 必殺技はタイプ(attack/heal/ailment/buff)ごとに効果と使用条件が異なります
  * - ステータス異常は毒・麻痺・やけど・凍結の4種で、同時に1つだけ罹患します
@@ -37,10 +40,10 @@ import type {
   BattleEvent,
   BattleEventPayload,
   BattleResult,
-  BattleSide,
   Character,
   CombatantSnapshot,
   PassiveSkillId,
+  RoyaleBattleResult,
   TeamBattleResult,
 } from "../types";
 
@@ -50,8 +53,8 @@ export type Rng = () => number;
 /** バトル中の1キャラクターの状態です。 */
 export interface CombatantState {
   character: Character;
-  /** 所属サイド(simulateTeamBattle の第1引数のチームが "first") */
-  side: BattleSide;
+  /** 所属チーム番号(コアエンジンに渡したチーム配列のインデックス) */
+  teamIndex: number;
   /** 現在HP */
   hp: number;
   /** 現在MP */
@@ -252,29 +255,43 @@ function decideActionOrder(
   return ordered;
 }
 
+/** コアエンジン(Nチーム対応)の結果です。勝利チームはチーム配列のインデックスで表します。 */
+interface MultiTeamBattleResult {
+  events: BattleEvent[];
+  /** 勝利したチームの番号。引き分けの場合は null */
+  winnerTeamIndex: number | null;
+}
+
 /**
- * チーム戦(1v1・2v2共通)のバトル全体をシミュレートし、
- * 全イベント列と勝利サイドを返します。
+ * Nチーム戦のバトル全体をシミュレートするコアエンジンです。
+ * チーム戦(simulateTeamBattle)は2チームとして、バトルロイヤル(simulateRoyale)は
+ * 「各1体のNチーム」としてここへ委譲します。
  *
  * - 全キャラクターがバトル開始時に決めた行動順で1ラウンドに1回ずつ行動します
  *   (倒れたキャラクターの枠はスキップします)
- * - 相手チームの全員のHPを0にしたチームの勝ちです
+ * - 攻撃対象は「生存する他チームのメンバー全員」(参加順)から選びます
+ * - 生存チームが1つになった時点でそのチームの勝ちです
  *   (毒・やけど・反撃による戦闘不能を含む)
- * - MAX_ROUNDS 以内に決着しない場合はチームの平均HP残存率が高い方が勝者、
- *   同率なら引き分け(winner が null)です
+ * - MAX_ROUNDS 以内に決着しない場合はチームの平均HP残存率が最も高いチームが勝者、
+ *   同率トップが複数なら引き分け(winnerTeamIndex が null)です
+ *
+ * 互換性の注意: 2チームで実行したとき、乱数の消費順・イベント列は
+ * 一般化前の simulateTeamBattle と完全に一致します(乱数を消費する処理の
+ * 追加・並び替えを禁止します)。
  */
-export function simulateTeamBattle(
-  firstTeam: readonly Character[],
-  secondTeam: readonly Character[],
+function simulateMultiTeamBattle(
+  teams: readonly (readonly Character[])[],
   rng: Rng,
-): TeamBattleResult {
-  if (firstTeam.length === 0 || secondTeam.length === 0) {
-    throw new Error("各チームには1体以上のキャラクターが必要です");
+): MultiTeamBattleResult {
+  for (const team of teams) {
+    if (team.length === 0) {
+      throw new Error("各チームには1体以上のキャラクターが必要です");
+    }
   }
   // スナップショット(after)はキャラクターIDをキーにするため、
   // 同一IDでは一方の状態が黙って上書きされてしまいます(Fail-Fast)
   const seenIds = new Set<string>();
-  for (const character of [...firstTeam, ...secondTeam]) {
+  for (const character of teams.flat()) {
     if (seenIds.has(character.id)) {
       throw new Error(
         `キャラクターIDが同一のキャラクターが複数参加しています: ${character.id}`,
@@ -283,21 +300,41 @@ export function simulateTeamBattle(
     seenIds.add(character.id);
   }
 
-  const combatants: CombatantState[] = [
-    ...firstTeam.map((character) => createState(character, "first")),
-    ...secondTeam.map((character) => createState(character, "second")),
-  ];
+  const combatants: CombatantState[] = teams.flatMap((team, teamIndex) =>
+    team.map((character) => createState(character, teamIndex)),
+  );
   const order = decideActionOrder(combatants, rng);
   const events: BattleEvent[] = [];
 
-  /** 指定サイドの生存メンバーを返します(チーム配列の並び順を保ちます)。 */
-  function livingMembers(side: BattleSide): CombatantState[] {
-    return combatants.filter((c) => c.side === side && c.hp > 0);
+  /** 行動者から見た「生存する他チームのメンバー」を返します(参加順を保ちます)。 */
+  function livingOpponentsOf(actor: CombatantState): CombatantState[] {
+    return combatants.filter(
+      (c) => c.teamIndex !== actor.teamIndex && c.hp > 0,
+    );
   }
 
-  /** 指定サイドが全滅したかを返します。 */
-  function isTeamWiped(side: BattleSide): boolean {
-    return livingMembers(side).length === 0;
+  /** 生存メンバーが1体以上残っているチームの数を返します(乱数は消費しません)。 */
+  function countLivingTeams(): number {
+    const aliveTeams = new Set<number>();
+    for (const c of combatants) {
+      if (c.hp > 0) {
+        aliveTeams.add(c.teamIndex);
+      }
+    }
+    return aliveTeams.size;
+  }
+
+  /** 唯一生き残ったチームの番号を返します(決着直後の勝者決定専用。不整合は Fail-Fast)。 */
+  function soleLivingTeamIndex(): number {
+    const living = combatants.filter((c) => c.hp > 0);
+    const head = living[0];
+    if (head === undefined) {
+      throw new Error("決着時に生存しているチームがありません");
+    }
+    if (living.some((c) => c.teamIndex !== head.teamIndex)) {
+      throw new Error("決着時に複数のチームが生存しています");
+    }
+    return head.teamIndex;
   }
 
   /** イベント適用後の全キャラクターの状態スナップショットを作ります。 */
@@ -366,21 +403,22 @@ export function simulateTeamBattle(
       }
       turn += 1;
       if (performAction(turn, actor) === "finished") {
-        return {
-          events,
-          winner: isTeamWiped("second") ? "first" : "second",
-        };
+        return { events, winnerTeamIndex: soleLivingTeamIndex() };
       }
     }
   }
 
-  // ラウンド上限到達: チームの平均HP残存率で判定します
-  const ratioFirst = teamHpRatio(combatants, "first");
-  const ratioSecond = teamHpRatio(combatants, "second");
-  if (ratioFirst === ratioSecond) {
-    return { events, winner: null };
-  }
-  return { events, winner: ratioFirst > ratioSecond ? "first" : "second" };
+  // ラウンド上限到達: チームの平均HP残存率が最も高いチームの勝ちです
+  // (同率トップが複数の場合は引き分け)
+  const ratios = teams.map((_, teamIndex) => teamHpRatio(combatants, teamIndex));
+  const best = Math.max(...ratios);
+  const bestTeamIndices = ratios.flatMap((ratio, teamIndex) =>
+    ratio === best ? [teamIndex] : [],
+  );
+  return {
+    events,
+    winnerTeamIndex: bestTeamIndices.length === 1 ? at(bestTeamIndices, 0) : null,
+  };
 
   /**
    * 1アクション(行動可否判定 → 行動 → 行動後効果 → MP回復)を実行します。
@@ -390,8 +428,7 @@ export function simulateTeamBattle(
     turn: number,
     actor: CombatantState,
   ): "continue" | "finished" {
-    const opponentSide: BattleSide = actor.side === "first" ? "second" : "first";
-    const livingOpponents = livingMembers(opponentSide);
+    const livingOpponents = livingOpponentsOf(actor);
 
     // --- 1. 行動可否判定(凍結・麻痺) ---
     if (actor.ailment === "freeze") {
@@ -466,7 +503,7 @@ export function simulateTeamBattle(
       }
     }
     if (hit.knockedOut) {
-      if (isTeamWiped(opponentSide)) {
+      if (countLivingTeams() <= 1) {
         return "finished";
       }
       return endOfAction(turn, actor);
@@ -484,7 +521,7 @@ export function simulateTeamBattle(
       }
       if (counterHit.knockedOut) {
         // 反撃で倒れたキャラクターは行動後効果(スリップダメージ等)を行いません
-        return isTeamWiped(actor.side) ? "finished" : "continue";
+        return countLivingTeams() <= 1 ? "finished" : "continue";
       }
     }
 
@@ -522,7 +559,7 @@ export function simulateTeamBattle(
         if (hit.endured) {
           emit(turn, target, target, { type: "endure" });
         }
-        return hit.knockedOut && isTeamWiped(target.side)
+        return hit.knockedOut && countLivingTeams() <= 1
           ? "finished"
           : "continue";
       }
@@ -566,7 +603,7 @@ export function simulateTeamBattle(
         if (hit.endured) {
           emit(turn, target, target, { type: "endure" });
         }
-        return hit.knockedOut && isTeamWiped(target.side)
+        return hit.knockedOut && countLivingTeams() <= 1
           ? "finished"
           : "continue";
       }
@@ -609,7 +646,7 @@ export function simulateTeamBattle(
         emit(turn, actor, actor, { type: "endure" });
       }
       if (hit.knockedOut) {
-        return isTeamWiped(actor.side) ? "finished" : "continue";
+        return countLivingTeams() <= 1 ? "finished" : "continue";
       }
     }
     // regenerate: 行動後にHPが少し回復します(乱数消費なし)。
@@ -629,6 +666,53 @@ export function simulateTeamBattle(
     actor.mp = Math.min(actor.character.mp, actor.mp + regen);
     return "continue";
   }
+}
+
+/**
+ * チーム戦(1v1・2v2共通)のバトル全体をシミュレートし、
+ * 全イベント列と勝利サイドを返します。
+ * 内部ではNチーム対応のコアエンジンを2チームで実行します
+ * (乱数の消費順・イベント列は一般化前の実装と完全に互換です)。
+ */
+export function simulateTeamBattle(
+  firstTeam: readonly Character[],
+  secondTeam: readonly Character[],
+  rng: Rng,
+): TeamBattleResult {
+  const result = simulateMultiTeamBattle([firstTeam, secondTeam], rng);
+  const winner =
+    result.winnerTeamIndex === null
+      ? null
+      : result.winnerTeamIndex === 0
+        ? "first"
+        : "second";
+  return { events: result.events, winner };
+}
+
+/**
+ * バトルロイヤル(完全FFA)のバトル全体をシミュレートし、
+ * 全イベント列と勝者ID(引き分けの場合は null)を返します。
+ * 内部ではNチーム対応のコアエンジンを「各1体のNチーム」として実行するため、
+ * 対象候補は「生存する自分以外の全員」(引数 fighters の並び順)になります。
+ */
+export function simulateRoyale(
+  fighters: readonly Character[],
+  rng: Rng,
+): RoyaleBattleResult {
+  if (fighters.length < 2) {
+    throw new Error("バトルロイヤルには2体以上のキャラクターが必要です");
+  }
+  const result = simulateMultiTeamBattle(
+    fighters.map((fighter) => [fighter]),
+    rng,
+  );
+  return {
+    events: result.events,
+    winnerId:
+      result.winnerTeamIndex === null
+        ? null
+        : at(fighters, result.winnerTeamIndex).id,
+  };
 }
 
 /**
@@ -652,10 +736,10 @@ export function simulateBattle(
 }
 
 /** バトル開始時の戦闘状態を作ります。 */
-function createState(character: Character, side: BattleSide): CombatantState {
+function createState(character: Character, teamIndex: number): CombatantState {
   return {
     character,
-    side,
+    teamIndex,
     hp: character.hp,
     mp: character.mp,
     ailment: null,
@@ -669,9 +753,9 @@ function createState(character: Character, side: BattleSide): CombatantState {
 /** チームの平均HP残存率を返します(倒れたキャラクターは0として平均します)。 */
 function teamHpRatio(
   combatants: readonly CombatantState[],
-  side: BattleSide,
+  teamIndex: number,
 ): number {
-  const members = combatants.filter((c) => c.side === side);
+  const members = combatants.filter((c) => c.teamIndex === teamIndex);
   const total = members.reduce(
     (sum, member) => sum + member.hp / member.character.hp,
     0,

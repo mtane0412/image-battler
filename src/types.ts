@@ -305,3 +305,10 @@ export interface TeamBattleResult {
   /** 勝利したサイド。引き分けの場合は null */
   winner: BattleSide | null;
 }
+
+/** バトルロイヤル(完全FFA)のバトル全体の結果です。 */
+export interface RoyaleBattleResult {
+  events: BattleEvent[];
+  /** 最後まで生き残った(または判定勝ちした)キャラクターのID。引き分けの場合は null */
+  winnerId: string | null;
+}
