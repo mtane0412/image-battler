@@ -325,14 +325,17 @@ export function renderHome(ctx: AppContext): HTMLElement {
         el("div", {
           className: "card-portrait stage-card-portrait stage-card-default-portrait",
         }),
-        el("p", { className: "card-title stage-card-title", text: "こうかなし" }),
+        el("p", {
+          className: "card-title stage-card-title",
+          text: "デフォルトステージ",
+        }),
         el("h3", {
           className: "card-name stage-card-name",
-          text: "デフォルトステージ",
+          text: "イメージバトルアリーナ",
         }),
         el("p", {
           className: "card-desc stage-card-desc",
-          text: "とくに効果はありません",
+          text: "命を吹き込まれた画像たちの闘いが今始まる",
         }),
         // stageCard() と行構成を揃えて縦幅を合わせるため、
         // とくしゅいべんと・とくせいの行も(内容「なし」で)表示します
