@@ -14,7 +14,7 @@
  *   5. 行動後の毒・やけどダメージとMP回復: 乱数消費なし
  */
 import { describe, expect, it } from "vitest";
-import { simulateBattle, simulateTeamBattle } from "./engine";
+import { simulateBattle, simulateRoyale, simulateTeamBattle } from "./engine";
 import {
   makeCharacter,
   makePassive,
@@ -1052,5 +1052,171 @@ describe("simulateTeamBattle: 入力検証", () => {
     expect(() => simulateTeamBattle([], [敵], sequenceRng([]))).toThrow(
       /1体以上/,
     );
+  });
+});
+
+/**
+ * バトルロイヤル(完全FFA)の乱数の消費順(実装と厳密に一致させること):
+ * - 2v2(チーム戦)と同じです。対象候補が「生存する自分以外の全員
+ *   (引数 fighters の並び順)」になる点だけが異なります
+ */
+describe("simulateRoyale: 行動順と対象選択", () => {
+  it("対象候補は生存する自分以外の全員で、乱数0.6のとき候補の2体目(引数順)が対象になる", () => {
+    const 韋駄天 = makeCharacter({ id: "a", name: "韋駄天", hp: 300, attack: 40, defense: 20, mp: 0, speed: 90 });
+    const 中堅 = makeCharacter({ id: "b", name: "中堅", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 鈍足 = makeCharacter({ id: "c", name: "鈍足", hp: 300, attack: 40, defense: 20, mp: 0, speed: 30 });
+    // aの対象候補は自分以外の[b, c]。floor(0.6 * 2) = 1 → 2体目のcへ32ダメージ。
+    // afterには参加者全員のスナップショットが入る
+    const result = simulateRoyale(
+      [韋駄天, 中堅, 鈍足],
+      sequenceRng([0.6, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "attack",
+      actorId: "a",
+      targetId: "c",
+      damage: 32,
+      turn: 1,
+      after: { a: { hp: 300 }, b: { hp: 300 }, c: { hp: 268 } },
+    });
+  });
+
+  it("倒れたキャラクターは対象候補から外れ、候補が1体なら対象選択の乱数を消費しない", () => {
+    const 豪傑 = makeCharacter({ id: "a", hp: 300, attack: 400, defense: 20, mp: 0, speed: 90 });
+    const 紙装甲 = makeCharacter({ id: "b", hp: 100, attack: 40, defense: 20, mp: 0, speed: 70 });
+    const 鈍足 = makeCharacter({ id: "c", hp: 300, attack: 40, defense: 20, mp: 0, speed: 30 });
+    // a: [対象0→b, ミス, クリ, 補正]でbを一撃(400 * 1.0 - 20 * 0.4 = 392 ≥ 100)。
+    // bの枠はスキップされ、cの候補は生存するaだけ →
+    // 対象選択の乱数なしで先頭の0.01がミス判定に使われミスになる
+    const result = simulateRoyale(
+      [豪傑, 紙装甲, 鈍足],
+      sequenceRng([0, 0.5, 0.5, 0.5, 0.01]),
+    );
+    expect(result.events[0]).toMatchObject({
+      actorId: "a",
+      targetId: "b",
+      after: { b: { hp: 0 } },
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "miss",
+      actorId: "c",
+      targetId: "a",
+      turn: 2,
+    });
+  });
+
+  it("同速の3体はグループ内の順序決定で乱数を2回消費する(前進Fisher-Yates)", () => {
+    const 一番手 = makeCharacter({ id: "a", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 二番手 = makeCharacter({ id: "b", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    const 三番手 = makeCharacter({ id: "c", hp: 300, attack: 40, defense: 20, mp: 0, speed: 50 });
+    // [0, 0]: i=0でj=0、i=1でj=1となり引数順が維持される
+    const keep = simulateRoyale([一番手, 二番手, 三番手], sequenceRng([0, 0]));
+    expect(keep.events.slice(0, 3).map((e) => e.actorId)).toEqual(["a", "b", "c"]);
+    // [0.99, 0.99]: i=0でj=2([c,b,a])、i=1でj=2([c,a,b])になる
+    const swap = simulateRoyale([一番手, 二番手, 三番手], sequenceRng([0.99, 0.99]));
+    expect(swap.events.slice(0, 3).map((e) => e.actorId)).toEqual(["c", "a", "b"]);
+  });
+
+  it("異常技の対象候補はロイヤルでも「異常でなく ailment-guard でもない生存者」に限られ、候補1体なら乱数を消費しない", () => {
+    const 仕掛け役 = makeCharacter({
+      id: "a",
+      hp: 300,
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "毒きり", type: "ailment", power: 50, ailment: "poison" }),
+    });
+    const 守り手 = makeCharacter({
+      id: "b",
+      hp: 300,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 50,
+      passive: makePassive("ailment-guard"),
+    });
+    const 鈍足 = makeCharacter({ id: "c", hp: 300, attack: 40, defense: 20, mp: 0, speed: 30 });
+    // a: [必殺技判定0.1] → 候補はcのみ(bはguard)なので対象乱数なし → [威力補正0.5]。
+    // round(50 * 0.3 * 1.0) = 15ダメージ + 毒
+    const result = simulateRoyale(
+      [仕掛け役, 守り手, 鈍足],
+      sequenceRng([0.1, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-ailment",
+      actorId: "a",
+      targetId: "c",
+      damage: 15,
+      after: { c: { hp: 285, ailment: "poison" } },
+    });
+  });
+});
+
+describe("simulateRoyale: 決着", () => {
+  it("生き残りが1人になった瞬間に決着し、そのキャラクターが勝者になる", () => {
+    const 豪傑 = makeCharacter({ id: "a", hp: 300, attack: 400, defense: 20, mp: 0, speed: 90 });
+    const 紙装甲 = makeCharacter({ id: "b", hp: 100, attack: 40, defense: 20, mp: 0, speed: 70 });
+    const 薄氷 = makeCharacter({ id: "c", hp: 100, attack: 40, defense: 20, mp: 0, speed: 50 });
+    // 1巡目: aがbを一撃(対象0→b)、cの候補はaのみで32ダメージ。
+    // 2巡目: aの候補はcのみ(対象乱数なし)→ cを一撃して決着
+    const result = simulateRoyale([豪傑, 紙装甲, 薄氷], sequenceRng([0]));
+    expect(result.winnerId).toBe("a");
+    expect(result.events).toHaveLength(3);
+    expect(result.events[2]).toMatchObject({
+      actorId: "a",
+      targetId: "c",
+      after: { a: { hp: 268 }, b: { hp: 0 }, c: { hp: 0 } },
+    });
+  });
+
+  it("50ラウンドで決着しない場合、HP残存率が最も高い1人が勝者になる", () => {
+    // 攻撃20 vs 防御50 → 毎回最低保証の1ダメージ。対象選択は常に0.5(候補2体の2体目)なので
+    // aとbはcを、cはbを攻撃し続ける → 被弾は a: 0回 / b: 50回 / c: 100回
+    const a = makeCharacter({ id: "a", hp: 300, attack: 20, defense: 50, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", hp: 300, attack: 20, defense: 50, mp: 0, speed: 50 });
+    const c = makeCharacter({ id: "c", hp: 300, attack: 20, defense: 50, mp: 0, speed: 30 });
+    const result = simulateRoyale([a, b, c], sequenceRng([]));
+    // 50ラウンド × 3体 = 150アクション。残存率 a: 1.0 / b: 250/300 / c: 200/300
+    expect(result.events).toHaveLength(150);
+    expect(result.winnerId).toBe("a");
+  });
+
+  it("50ラウンドで決着せずHP残存率のトップが並んだ場合は引き分けになる", () => {
+    // 対象選択0.5(候補3体のときfloor(0.5 * 3) = 1)では aとbがcを、cとdがbを攻撃し続ける
+    // → aとdは無傷のまま残存率1.0で並び、引き分けになる
+    const a = makeCharacter({ id: "a", hp: 300, attack: 20, defense: 50, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", hp: 300, attack: 20, defense: 50, mp: 0, speed: 70 });
+    const c = makeCharacter({ id: "c", hp: 300, attack: 20, defense: 50, mp: 0, speed: 50 });
+    const d = makeCharacter({ id: "d", hp: 300, attack: 20, defense: 50, mp: 0, speed: 30 });
+    const result = simulateRoyale([a, b, c, d], sequenceRng([]));
+    expect(result.winnerId).toBeNull();
+  });
+
+  it("2人のロイヤルは同じ乱数列の1v1と同一のイベント列・勝者になる(互換性)", () => {
+    const 攻め手 = makeCharacter({ id: "a", name: "攻め手", attack: 40, defense: 20, mp: 60, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", name: "受け手", hp: 100, attack: 40, defense: 20, mp: 0, speed: 30 });
+    const royale = simulateRoyale([攻め手, 受け手], sequenceRng([0.1, 0.5]));
+    const duel = simulateBattle(攻め手, 受け手, sequenceRng([0.1, 0.5]));
+    expect(royale.events).toEqual(duel.events);
+    expect(royale.winnerId).toBe(duel.winnerId);
+  });
+});
+
+describe("simulateRoyale: 入力検証", () => {
+  it("参加者が2人未満の場合はエラーになる(Fail-Fast)", () => {
+    const 独りぼっち = makeCharacter({ id: "solo", mp: 0 });
+    expect(() => simulateRoyale([独りぼっち], sequenceRng([]))).toThrow(
+      /2体以上/,
+    );
+  });
+
+  it("キャラクターIDが重複する場合はエラーになる(Fail-Fast)", () => {
+    const 重複1 = makeCharacter({ id: "same-id", mp: 0 });
+    const 重複2 = makeCharacter({ id: "same-id", mp: 0 });
+    const 第三者 = makeCharacter({ id: "third", mp: 0 });
+    expect(() =>
+      simulateRoyale([重複1, 重複2, 第三者], sequenceRng([])),
+    ).toThrow(/同一/);
   });
 });
