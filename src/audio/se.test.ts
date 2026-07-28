@@ -191,6 +191,10 @@ describe("seUrl", () => {
   it("マニフェストのファイル名を含むURLを返す", () => {
     expect(seUrl("miss")).toContain("se/punch-swing1.mp3");
   });
+
+  it("メッセージ表示音(ログのタイプライター表示)のURLを返す", () => {
+    expect(seUrl("message")).toContain("se/message-display1.mp3");
+  });
 });
 
 describe("createSePlayer", () => {

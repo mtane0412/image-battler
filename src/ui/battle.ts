@@ -741,6 +741,8 @@ export function renderBattle(
     logWindow.append(line);
     logWindow.scrollTop = logWindow.scrollHeight;
     if (!reducedMotion && !document.hidden) {
+      // メッセージが流れる(タイプライター演出が動く)ときだけ表示音を鳴らします
+      sePlayer.play("message");
       const chars = [...text];
       const startedAt = performance.now();
       let shown = 0;

@@ -24,6 +24,11 @@
     "source": "https://soundeffect-lab.info/sound/battle/mp3/punch-swing1.mp3",
     "label": "パンチ空振り(ミス)"
   },
+  "message": {
+    "file": "message-display1.mp3",
+    "source": "https://soundeffect-lab.info/sound/button/mp3/message-display1.mp3",
+    "label": "メッセージ表示音1(ログのタイプライター表示)"
+  },
   "victory": {
     "file": "levelup1.mp3",
     "source": "https://soundeffect-lab.info/sound/anime/mp3/levelup1.mp3",
