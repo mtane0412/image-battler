@@ -719,9 +719,16 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
   /** 勝敗バナーを表示します。 */
   function showResult(winners: Character[] | null): void {
     if (winners === null) {
+      // 「りょうしゃ(両者)」は2陣営の表現のため、3人以上のロイヤルでは文言を変えます
       resultBanner.append(
         el("span", { className: "result-word", text: "DRAW" }),
-        el("span", { className: "result-name", text: "りょうしゃ ゆずらず!" }),
+        el("span", {
+          className: "result-name",
+          text:
+            setup.kind === "teams"
+              ? "りょうしゃ ゆずらず!"
+              : "けっちゃく つかず!",
+        }),
       );
       return;
     }
