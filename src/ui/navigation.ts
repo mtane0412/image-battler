@@ -4,11 +4,11 @@
  */
 import type { Character } from "../types";
 
-/** 表示中の画面を表す状態です。 */
+/** 表示中の画面を表す状態です。バトルは1v1・2v2共通でチーム配列を渡します。 */
 export type Screen =
   | { name: "home" }
   | { name: "create" }
-  | { name: "battle"; first: Character; second: Character };
+  | { name: "battle"; firstTeam: Character[]; secondTeam: Character[] };
 
 /** 各画面に渡される遷移用コンテキストです。 */
 export interface AppContext {

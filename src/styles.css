@@ -489,6 +489,28 @@ body:has(.battle-screen) .app-logo {
   width: 100%;
 }
 
+/* ---------- バトル形式の切り替え(ホーム) ---------- */
+
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 14px;
+}
+
+.mode-label {
+  font-family: var(--font-dot);
+  font-size: 13px;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.mode-button[aria-pressed="true"] {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(255, 210, 74, 0.12);
+}
+
 /* ---------- VSパネル(ホーム) ---------- */
 
 .vs-panel {
@@ -527,11 +549,19 @@ body:has(.battle-screen) .app-logo {
   min-width: 0;
 }
 
-.vs-slot-p1 {
+/* 1チーム分のスロット列です(2vs2では縦に2枚並びます) */
+.vs-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.vs-side-p1 {
   justify-self: end;
 }
 
-.vs-slot-p2 {
+.vs-side-p2 {
   justify-self: start;
 }
 
@@ -699,6 +729,25 @@ body:has(.battle-screen) .app-logo {
 .stage-vs {
   font-size: 42px;
   align-self: center;
+}
+
+/* 1チーム分のファイター列です(2vs2では横に2体並びます) */
+.stage-team {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 2vs2は4体を横に並べるため、1体あたりの幅を一段抑えます */
+.stage-2v2 .fighter {
+  width: min(160px, 21vw);
+}
+
+/* 戦闘不能のメンバーはグレーアウトして戦況を読みやすくします(チーム戦向け) */
+.fighter-ko {
+  filter: grayscale(1) brightness(0.6);
+  opacity: 0.8;
 }
 
 .fighter {
@@ -1240,6 +1289,20 @@ body:has(.battle-screen) .app-logo {
 
   .stage-vs {
     font-size: 26px;
+  }
+
+  /* 幅が狭い2vs2はチームを上下に分け、VSマークを挟んで表示します */
+  .stage-2v2 {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .stage-2v2 .stage-team {
+    justify-content: center;
+  }
+
+  .stage-2v2 .fighter {
+    width: min(160px, 40vw);
   }
 
   .fighter-name {

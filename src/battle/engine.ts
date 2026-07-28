@@ -2,7 +2,14 @@
  * @file バトルエンジンです。ゲームの状態管理・進行ロジックはすべて
  * この JavaScript(TypeScript)側で決定論的に計算します(AIはバトル結果に関与しません)。
  *
+ * チーム戦(simulateTeamBattle)を基本とし、1対1(simulateBattle)は
+ * チームサイズ1の特殊ケースとして同じエンジンで処理します。
+ *
  * 主な仕様:
+ * - ラウンド制: 全キャラクターがバトル開始時に決めた行動順で1ラウンドに1回ずつ行動します
+ * - 行動順: first-strike 持ち優先 → 素早さ降順。倒れたキャラクターの枠はスキップします
+ * - 攻撃対象: 通常攻撃・攻撃必殺技は生存する相手チームから無作為に選びます
+ * - 決着: 相手チームの全員を倒したチームの勝ちです
  * - 必殺技はMPを消費し、MPは自分の行動後に一定量回復します
  * - 必殺技はタイプ(attack/heal/ailment/buff)ごとに効果と使用条件が異なります
  * - ステータス異常は毒・麻痺・やけど・凍結の4種で、同時に1つだけ罹患します
@@ -11,15 +18,18 @@
  *   エンジン内の判定に組み込まれています(passive が null のキャラは効果なし)
  *
  * 乱数の消費順(テストと厳密に一致させること):
- * - バトル開始時: first-strike 持ちが一方だけの場合は消費なし。
- *   それ以外は同速の場合のみ[先攻決定]を1回
- * - 各アクション:
+ * - バトル開始時: 行動順の決定。優先度(first-strike)も素早さも同じキャラクター
+ *   同士のグループ内だけ[順序決定]を消費します(2体のグループは1回。
+ *   0.5未満で元の並び=引数順が維持されます。1v1の従来仕様と互換です)
+ * - 各アクション(倒れたキャラクターの枠は乱数もターン番号も消費しません):
  *   1. 凍結中: [解凍判定] / 麻痺中: [麻痺判定](行動不能ならここで終了)
- *   2. 必殺技が使用可能な場合: [必殺技判定] → 発動時、
- *      attack / heal / ailment タイプは[威力補正]を1回消費(buff は消費しない)
- *   3. 通常攻撃の場合: [ミス判定] → [クリティカル判定] → [威力補正]
- *      (相手が evasion 持ちの場合もミス判定の確率が変わるだけで消費順は不変)
- *   4. 通常攻撃が命中し、相手が counter 持ちで生存している場合: [反撃判定]
+ *   2. 必殺技が使用可能な場合: [必殺技判定] → 発動時、attack / ailment タイプは
+ *      [対象選択](生存する対象候補が2体以上のときのみ1回)→ [威力補正]を1回消費
+ *      (heal は[威力補正]のみ、buff はどちらも消費しない)
+ *   3. 通常攻撃の場合: [対象選択](生存する相手が2体以上のときのみ1回)→
+ *      [ミス判定] → [クリティカル判定] → [威力補正]
+ *      (対象が evasion 持ちの場合もミス判定の確率が変わるだけで消費順は不変)
+ *   4. 通常攻撃が命中し、対象が counter 持ちで生存している場合: [反撃判定]
  *   5. life-steal / regenerate の回復、行動後の毒・やけどダメージとMP回復: 乱数消費なし
  */
 import type {
@@ -27,17 +37,21 @@ import type {
   BattleEvent,
   BattleEventPayload,
   BattleResult,
+  BattleSide,
   Character,
   CombatantSnapshot,
   PassiveSkillId,
+  TeamBattleResult,
 } from "../types";
 
 /** [0, 1) の乱数を返す関数です。テストでは決め打ちの列を注入します。 */
 export type Rng = () => number;
 
-/** バトル中の一方のキャラクターの状態です。 */
+/** バトル中の1キャラクターの状態です。 */
 export interface CombatantState {
   character: Character;
+  /** 所属サイド(simulateTeamBattle の第1引数のチームが "first") */
+  side: BattleSide;
   /** 現在HP */
   hp: number;
   /** 現在MP */
@@ -74,8 +88,11 @@ const SPECIAL_VARIANCE_RANGE = 0.2;
 const SPECIAL_ATTACK_BONUS = 0.5;
 /** 攻撃タイプの必殺技で防御力が減算される係数(防御貫通気味) */
 const SPECIAL_DEFENSE_FACTOR = 0.2;
-/** 決着がつかない場合の最大アクション数 */
-const MAX_ACTIONS = 100;
+/**
+ * 決着がつかない場合の最大ラウンド数です。1ラウンドは全キャラクターの行動1巡で、
+ * 1v1では従来の最大100アクションに一致します(2v2では最大200アクション)。
+ */
+const MAX_ROUNDS = 50;
 /** 自分の行動後に回復するMP量 */
 const MP_REGEN_PER_TURN = 10;
 /** 回復技が使用可能になるHP残存率のしきい値 */
@@ -152,14 +169,15 @@ function effectiveDefense(state: CombatantState): number {
 /**
  * 現在の状況で必殺技が使用可能かを返します(乱数は消費しません)。
  * MPが足りることに加え、タイプごとの条件を満たす必要があります:
- * - attack: 常に使用可能
+ * - attack: 生存する相手がいれば使用可能
  * - heal: 自分のHPが60%以下
- * - ailment: 相手が状態異常でなく、ailment-guard も持っていない
+ * - ailment: 対象候補(異常でなく ailment-guard でもない生存する相手)がいる
  * - buff: このバトルでまだ強化技を使っていない
  */
 function isSpecialUsable(
   actor: CombatantState,
-  opponent: CombatantState,
+  livingOpponents: readonly CombatantState[],
+  ailmentTargets: readonly CombatantState[],
 ): boolean {
   const move = actor.character.specialMove;
   if (actor.mp < move.mpCost) {
@@ -167,71 +185,128 @@ function isSpecialUsable(
   }
   switch (move.type) {
     case "attack":
-      return true;
+      return livingOpponents.length > 0;
     case "heal":
       return actor.hp <= actor.character.hp * HEAL_HP_THRESHOLD;
     case "ailment":
-      return opponent.ailment === null && !hasPassive(opponent, "ailment-guard");
+      return ailmentTargets.length > 0;
     case "buff":
       return !actor.buffUsed;
   }
 }
 
+/** 配列の要素を取り出します。範囲外はデータ不正なので Fail-Fast で停止します。 */
+function at<T>(items: readonly T[], index: number): T {
+  const item = items[index];
+  if (item === undefined) {
+    throw new Error(`バトルエンジンが不正なインデックスを参照しました: ${index}`);
+  }
+  return item;
+}
+
+/** 行動順の優先度です(first-strike 持ちが先)。 */
+function priorityOf(state: CombatantState): number {
+  return hasPassive(state, "first-strike") ? 1 : 0;
+}
+
 /**
- * バトル全体をシミュレートし、全イベント列と勝敗を返します。
+ * バトル開始時に全キャラクターの行動順を決定します。
  *
- * - 先攻は素早さが高い方。同速の場合は乱数(0.5未満で第1引数が先攻)。
- * - 相手のHPを0にした側が勝者です(毒・やけど・反撃による戦闘不能を含む)。
- * - MAX_ACTIONS 以内に決着しない場合はHP残存率の高い方が勝者、
- *   同率なら引き分け(winnerId / loserId ともに null)です。
+ * first-strike 持ち優先 → 素早さ降順の安定ソートを行い、優先度も素早さも
+ * 完全に同じキャラクター同士のグループ内だけを前進 Fisher-Yates で
+ * シャッフルします(グループが1体なら乱数を消費しません)。
+ * 2体のグループでは乱数を1回だけ消費し、0.5未満で元の並び(引数順)が
+ * 維持されるため、1v1の従来仕様「同速の場合のみ先攻決定を1回」と互換です。
  */
-export function simulateBattle(
-  first: Character,
-  second: Character,
+function decideActionOrder(
+  combatants: readonly CombatantState[],
   rng: Rng,
-): BattleResult {
+): CombatantState[] {
+  const ordered = [...combatants].sort((x, y) => {
+    const priorityDiff = priorityOf(y) - priorityOf(x);
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+    return y.character.speed - x.character.speed;
+  });
+  let groupStart = 0;
+  while (groupStart < ordered.length) {
+    // 優先度と素早さが完全に同じキャラクターのグループ範囲を求めます
+    let groupEnd = groupStart + 1;
+    while (
+      groupEnd < ordered.length &&
+      priorityOf(at(ordered, groupStart)) === priorityOf(at(ordered, groupEnd)) &&
+      at(ordered, groupStart).character.speed ===
+        at(ordered, groupEnd).character.speed
+    ) {
+      groupEnd += 1;
+    }
+    for (let i = groupStart; i < groupEnd - 1; i++) {
+      const j = i + Math.floor(rng() * (groupEnd - i));
+      const picked = at(ordered, j);
+      ordered[j] = at(ordered, i);
+      ordered[i] = picked;
+    }
+    groupStart = groupEnd;
+  }
+  return ordered;
+}
+
+/**
+ * チーム戦(1v1・2v2共通)のバトル全体をシミュレートし、
+ * 全イベント列と勝利サイドを返します。
+ *
+ * - 全キャラクターがバトル開始時に決めた行動順で1ラウンドに1回ずつ行動します
+ *   (倒れたキャラクターの枠はスキップします)
+ * - 相手チームの全員のHPを0にしたチームの勝ちです
+ *   (毒・やけど・反撃による戦闘不能を含む)
+ * - MAX_ROUNDS 以内に決着しない場合はチームの平均HP残存率が高い方が勝者、
+ *   同率なら引き分け(winner が null)です
+ */
+export function simulateTeamBattle(
+  firstTeam: readonly Character[],
+  secondTeam: readonly Character[],
+  rng: Rng,
+): TeamBattleResult {
+  if (firstTeam.length === 0 || secondTeam.length === 0) {
+    throw new Error("各チームには1体以上のキャラクターが必要です");
+  }
   // スナップショット(after)はキャラクターIDをキーにするため、
   // 同一IDでは一方の状態が黙って上書きされてしまいます(Fail-Fast)
-  if (first.id === second.id) {
-    throw new Error(`両者のキャラクターIDが同一です: ${first.id}`);
-  }
-  const stateA = createState(first);
-  const stateB = createState(second);
-
-  // 先攻決定: first-strike 持ちが一方だけなら素早さに関係なくそのキャラが先攻です
-  // (乱数は消費しません)。両者とも持つ/持たない場合は従来どおり素早さで決め、
-  // 同速のときだけ乱数を1回消費します
-  const firstHasPriority = hasPassive(stateA, "first-strike");
-  const secondHasPriority = hasPassive(stateB, "first-strike");
-  let attacker: CombatantState;
-  let defender: CombatantState;
-  if (firstHasPriority !== secondHasPriority) {
-    [attacker, defender] = firstHasPriority
-      ? [stateA, stateB]
-      : [stateB, stateA];
-  } else if (first.speed !== second.speed) {
-    [attacker, defender] =
-      first.speed > second.speed ? [stateA, stateB] : [stateB, stateA];
-  } else {
-    [attacker, defender] = rng() < 0.5 ? [stateA, stateB] : [stateB, stateA];
+  const seenIds = new Set<string>();
+  for (const character of [...firstTeam, ...secondTeam]) {
+    if (seenIds.has(character.id)) {
+      throw new Error(
+        `キャラクターIDが同一のキャラクターが複数参加しています: ${character.id}`,
+      );
+    }
+    seenIds.add(character.id);
   }
 
+  const combatants: CombatantState[] = [
+    ...firstTeam.map((character) => createState(character, "first")),
+    ...secondTeam.map((character) => createState(character, "second")),
+  ];
+  const order = decideActionOrder(combatants, rng);
   const events: BattleEvent[] = [];
 
-  /** イベント適用後の両者の状態スナップショットを作ります。 */
+  /** 指定サイドの生存メンバーを返します(チーム配列の並び順を保ちます)。 */
+  function livingMembers(side: BattleSide): CombatantState[] {
+    return combatants.filter((c) => c.side === side && c.hp > 0);
+  }
+
+  /** 指定サイドが全滅したかを返します。 */
+  function isTeamWiped(side: BattleSide): boolean {
+    return livingMembers(side).length === 0;
+  }
+
+  /** イベント適用後の全キャラクターの状態スナップショットを作ります。 */
   function snapshot(): Record<string, CombatantSnapshot> {
-    return {
-      [stateA.character.id]: {
-        hp: stateA.hp,
-        mp: stateA.mp,
-        ailment: stateA.ailment,
-      },
-      [stateB.character.id]: {
-        hp: stateB.hp,
-        mp: stateB.mp,
-        ailment: stateB.ailment,
-      },
-    };
+    const record: Record<string, CombatantSnapshot> = {};
+    for (const c of combatants) {
+      record[c.character.id] = { hp: c.hp, mp: c.mp, ailment: c.ailment };
+    }
+    return record;
   }
 
   /** 共通フィールドを補ってイベントを追加します。 */
@@ -268,36 +343,56 @@ export function simulateBattle(
     return { knockedOut: target.hp === 0, endured: false };
   }
 
-  for (let turn = 1; turn <= MAX_ACTIONS; turn++) {
-    const acted = performAction(turn, attacker, defender);
-    if (acted === "finished") {
-      return finishByKnockout(events, stateA, stateB);
+  /**
+   * 対象候補から1体を選びます。候補が1体なら乱数を消費せずそのまま返し、
+   * 2体以上なら[対象選択]の乱数を1回消費して無作為に選びます。
+   */
+  function pickTarget(candidates: readonly CombatantState[]): CombatantState {
+    if (candidates.length === 0) {
+      throw new Error("対象候補がいない状態で対象選択が行われました");
     }
-    [attacker, defender] = [defender, attacker];
+    if (candidates.length === 1) {
+      return at(candidates, 0);
+    }
+    return at(candidates, Math.floor(rng() * candidates.length));
   }
 
-  // ターン上限到達: HP残存率で判定します
-  const ratioA = stateA.hp / stateA.character.hp;
-  const ratioB = stateB.hp / stateB.character.hp;
-  if (ratioA === ratioB) {
-    return { events, winnerId: null, loserId: null };
+  let turn = 0;
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    for (const actor of order) {
+      // 倒れたキャラクターの枠はスキップします(乱数・ターン番号を消費しません)
+      if (actor.hp === 0) {
+        continue;
+      }
+      turn += 1;
+      if (performAction(turn, actor) === "finished") {
+        return {
+          events,
+          winner: isTeamWiped("second") ? "first" : "second",
+        };
+      }
+    }
   }
-  const [winner, loser] = ratioA > ratioB ? [stateA, stateB] : [stateB, stateA];
-  return {
-    events,
-    winnerId: winner.character.id,
-    loserId: loser.character.id,
-  };
+
+  // ラウンド上限到達: チームの平均HP残存率で判定します
+  const ratioFirst = teamHpRatio(combatants, "first");
+  const ratioSecond = teamHpRatio(combatants, "second");
+  if (ratioFirst === ratioSecond) {
+    return { events, winner: null };
+  }
+  return { events, winner: ratioFirst > ratioSecond ? "first" : "second" };
 
   /**
    * 1アクション(行動可否判定 → 行動 → 行動後効果 → MP回復)を実行します。
-   * @returns どちらかが戦闘不能になった場合 "finished"
+   * @returns どちらかのチームが全滅した場合 "finished"
    */
   function performAction(
     turn: number,
     actor: CombatantState,
-    opponent: CombatantState,
   ): "continue" | "finished" {
+    const opponentSide: BattleSide = actor.side === "first" ? "second" : "first";
+    const livingOpponents = livingMembers(opponentSide);
+
     // --- 1. 行動可否判定(凍結・麻痺) ---
     if (actor.ailment === "freeze") {
       if (rng() < FREEZE_THAW_CHANCE) {
@@ -315,20 +410,30 @@ export function simulateBattle(
     }
 
     // --- 2. 必殺技 ---
-    if (isSpecialUsable(actor, opponent) && rng() < SPECIAL_TRIGGER_CHANCE) {
-      if (performSpecial(turn, actor, opponent) === "finished") {
+    const ailmentTargets = livingOpponents.filter(
+      (o) => o.ailment === null && !hasPassive(o, "ailment-guard"),
+    );
+    if (
+      isSpecialUsable(actor, livingOpponents, ailmentTargets) &&
+      rng() < SPECIAL_TRIGGER_CHANCE
+    ) {
+      if (
+        performSpecial(turn, actor, livingOpponents, ailmentTargets) ===
+        "finished"
+      ) {
         return "finished";
       }
       return endOfAction(turn, actor);
     }
 
     // --- 3. 通常攻撃 ---
-    // 相手が evasion 持ちの場合はミス率が上がります(乱数の消費順は不変)
-    const missChance = hasPassive(opponent, "evasion")
+    const target = pickTarget(livingOpponents);
+    // 対象が evasion 持ちの場合はミス率が上がります(乱数の消費順は不変)
+    const missChance = hasPassive(target, "evasion")
       ? EVASION_MISS_CHANCE
       : MISS_CHANCE;
     if (rng() < missChance) {
-      emit(turn, actor, opponent, { type: "miss" });
+      emit(turn, actor, target, { type: "miss" });
       return endOfAction(turn, actor);
     }
     const critRate =
@@ -338,15 +443,15 @@ export function simulateBattle(
     const variance = NORMAL_VARIANCE_BASE + rng() * NORMAL_VARIANCE_RANGE;
     let raw =
       effectiveAttack(actor) * variance -
-      effectiveDefense(opponent) * NORMAL_DEFENSE_FACTOR;
+      effectiveDefense(target) * NORMAL_DEFENSE_FACTOR;
     if (critical) {
       raw *= CRIT_MULTIPLIER;
     }
     const damage = toDamage(raw);
-    const hit = applyDamage(opponent, damage);
-    emit(turn, actor, opponent, { type: "attack", critical, damage });
+    const hit = applyDamage(target, damage);
+    emit(turn, actor, target, { type: "attack", critical, damage });
     if (hit.endured) {
-      emit(turn, opponent, opponent, { type: "endure" });
+      emit(turn, target, target, { type: "endure" });
     }
     // life-steal: 通常攻撃で与えたダメージの一部を回復します(乱数消費なし)。
     // とどめの一撃でも回復してからバトル終了の判定に進みます
@@ -361,21 +466,25 @@ export function simulateBattle(
       }
     }
     if (hit.knockedOut) {
-      return "finished";
+      if (isTeamWiped(opponentSide)) {
+        return "finished";
+      }
+      return endOfAction(turn, actor);
     }
 
     // --- 4. 反撃(パッシブ counter、通常攻撃の命中に対してのみ) ---
-    if (hasPassive(opponent, "counter") && rng() < COUNTER_CHANCE) {
+    if (hasPassive(target, "counter") && rng() < COUNTER_CHANCE) {
       const counterDamage = toDamage(
-        effectiveAttack(opponent) * COUNTER_DAMAGE_FACTOR,
+        effectiveAttack(target) * COUNTER_DAMAGE_FACTOR,
       );
       const counterHit = applyDamage(actor, counterDamage);
-      emit(turn, opponent, actor, { type: "counter", damage: counterDamage });
+      emit(turn, target, actor, { type: "counter", damage: counterDamage });
       if (counterHit.endured) {
         emit(turn, actor, actor, { type: "endure" });
       }
       if (counterHit.knockedOut) {
-        return "finished";
+        // 反撃で倒れたキャラクターは行動後効果(スリップダメージ等)を行いません
+        return isTeamWiped(actor.side) ? "finished" : "continue";
       }
     }
 
@@ -384,34 +493,38 @@ export function simulateBattle(
 
   /**
    * 必殺技を実行します(使用可否と発動判定は呼び出し側で済んでいる前提)。
-   * @returns 相手が戦闘不能になった場合 "finished"
+   * @returns 相手チームが全滅した場合 "finished"
    */
   function performSpecial(
     turn: number,
     actor: CombatantState,
-    opponent: CombatantState,
+    livingOpponents: readonly CombatantState[],
+    ailmentTargets: readonly CombatantState[],
   ): "continue" | "finished" {
     const move = actor.character.specialMove;
     actor.mp -= move.mpCost;
 
     switch (move.type) {
       case "attack": {
+        const target = pickTarget(livingOpponents);
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const damage = toDamage(
           move.power * variance +
             effectiveAttack(actor) * SPECIAL_ATTACK_BONUS -
-            effectiveDefense(opponent) * SPECIAL_DEFENSE_FACTOR,
+            effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR,
         );
-        const hit = applyDamage(opponent, damage);
-        emit(turn, actor, opponent, {
+        const hit = applyDamage(target, damage);
+        emit(turn, actor, target, {
           type: "special-attack",
           moveName: move.name,
           damage,
         });
         if (hit.endured) {
-          emit(turn, opponent, opponent, { type: "endure" });
+          emit(turn, target, target, { type: "endure" });
         }
-        return hit.knockedOut ? "finished" : "continue";
+        return hit.knockedOut && isTeamWiped(target.side)
+          ? "finished"
+          : "continue";
       }
       case "heal": {
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
@@ -428,31 +541,34 @@ export function simulateBattle(
         return "continue";
       }
       case "ailment": {
-        // 使用条件(isSpecialUsable)で相手が異常でないことは確認済みです。
+        // 使用条件(isSpecialUsable)で対象候補がいることは確認済みです。
         // ailment が null の異常技はデータ不正なので Fail-Fast で停止します
         if (move.ailment === null) {
           throw new Error(
             `異常タイプの必殺技「${move.name}」に ailment が設定されていません`,
           );
         }
+        const target = pickTarget(ailmentTargets);
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const damage = toDamage(
           move.power * AILMENT_MOVE_POWER_FACTOR * variance,
         );
-        const hit = applyDamage(opponent, damage);
+        const hit = applyDamage(target, damage);
         if (!hit.knockedOut) {
-          opponent.ailment = move.ailment;
+          target.ailment = move.ailment;
         }
-        emit(turn, actor, opponent, {
+        emit(turn, actor, target, {
           type: "special-ailment",
           moveName: move.name,
           ailment: move.ailment,
           damage,
         });
         if (hit.endured) {
-          emit(turn, opponent, opponent, { type: "endure" });
+          emit(turn, target, target, { type: "endure" });
         }
-        return hit.knockedOut ? "finished" : "continue";
+        return hit.knockedOut && isTeamWiped(target.side)
+          ? "finished"
+          : "continue";
       }
       case "buff": {
         const attackGain = Math.round(move.power * BUFF_ATTACK_FACTOR);
@@ -473,7 +589,7 @@ export function simulateBattle(
 
   /**
    * 行動後の処理(毒・やけどのスリップダメージ → MP回復)を実行します。
-   * @returns 行動者がスリップダメージで戦闘不能になった場合 "finished"
+   * @returns 行動者がスリップダメージで倒れてチームが全滅した場合 "finished"
    */
   function endOfAction(
     turn: number,
@@ -493,7 +609,7 @@ export function simulateBattle(
         emit(turn, actor, actor, { type: "endure" });
       }
       if (hit.knockedOut) {
-        return "finished";
+        return isTeamWiped(actor.side) ? "finished" : "continue";
       }
     }
     // regenerate: 行動後にHPが少し回復します(乱数消費なし)。
@@ -515,10 +631,31 @@ export function simulateBattle(
   }
 }
 
+/**
+ * 1対1のバトル全体をシミュレートし、全イベント列と勝敗を返します。
+ * 内部ではチーム戦エンジン(simulateTeamBattle)をチームサイズ1で実行します。
+ * 対象候補が常に1体のため[対象選択]の乱数を消費せず、[順序決定]も
+ * 同速時の1回だけなので、乱数の消費順は従来の1対1実装と完全に互換です。
+ */
+export function simulateBattle(
+  first: Character,
+  second: Character,
+  rng: Rng,
+): BattleResult {
+  const result = simulateTeamBattle([first], [second], rng);
+  if (result.winner === null) {
+    return { events: result.events, winnerId: null, loserId: null };
+  }
+  const [winner, loser] =
+    result.winner === "first" ? [first, second] : [second, first];
+  return { events: result.events, winnerId: winner.id, loserId: loser.id };
+}
+
 /** バトル開始時の戦闘状態を作ります。 */
-function createState(character: Character): CombatantState {
+function createState(character: Character, side: BattleSide): CombatantState {
   return {
     character,
+    side,
     hp: character.hp,
     mp: character.mp,
     ailment: null,
@@ -529,17 +666,15 @@ function createState(character: Character): CombatantState {
   };
 }
 
-/** どちらかが戦闘不能になったときの結果を作ります(HP0の側が敗者)。 */
-function finishByKnockout(
-  events: BattleEvent[],
-  stateA: CombatantState,
-  stateB: CombatantState,
-): BattleResult {
-  const [winner, loser] =
-    stateA.hp === 0 ? [stateB, stateA] : [stateA, stateB];
-  return {
-    events,
-    winnerId: winner.character.id,
-    loserId: loser.character.id,
-  };
+/** チームの平均HP残存率を返します(倒れたキャラクターは0として平均します)。 */
+function teamHpRatio(
+  combatants: readonly CombatantState[],
+  side: BattleSide,
+): number {
+  const members = combatants.filter((c) => c.side === side);
+  const total = members.reduce(
+    (sum, member) => sum + member.hp / member.character.hp,
+    0,
+  );
+  return total / members.length;
 }

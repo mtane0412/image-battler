@@ -57,7 +57,7 @@ export function buildCharacterPrompt(
 /** ストーリー(前口上)生成セッションのシステムプロンプトです。 */
 export const STORY_SYSTEM_PROMPT = [
   "あなたは対戦ゲームのオープニングを語るナレーターです。",
-  "与えられた二人のファイターの設定と舞台から、これから始まるバトルの",
+  "与えられたファイターたちの設定と舞台から、これから始まるバトルの",
   "前口上を日本語で2〜3文で語ってください。",
   "前口上の本文のみを出力し、前置きや引用符は不要です。",
 ].join("");
@@ -69,22 +69,35 @@ export interface StoryFighter {
   description: string;
 }
 
+/** タッグバトル(2v2)かどうかをチーム人数から判定します。 */
+function isTagBattle(
+  firstTeam: readonly unknown[],
+  secondTeam: readonly unknown[],
+): boolean {
+  return firstTeam.length > 1 || secondTeam.length > 1;
+}
+
 /**
- * バトル前口上用のプロンプトを組み立てます。
+ * バトル前口上用のプロンプトを組み立てます(1v1・2v2共通)。
  * 舞台と因縁(ingredients)はコード側で抽選した材料です(ai/story.ts)。
  * 前口上はバトル再生前に表示するため、勝敗のネタバレを明示的に禁止します。
  */
 export function buildStoryPrompt(
-  first: StoryFighter,
-  second: StoryFighter,
+  firstTeam: readonly StoryFighter[],
+  secondTeam: readonly StoryFighter[],
   ingredients: StoryIngredients,
 ): string {
+  const tag = isTagBattle(firstTeam, secondTeam);
+  const cornerLine = (corner: string, fighter: StoryFighter): string =>
+    `${corner}:「${fighter.title}」こと ${fighter.name}。${fighter.description}`;
   return [
-    "これから始まるバトルの前口上を2〜3文で書いてください。",
+    tag
+      ? "これから始まる2対2のタッグバトルの前口上を2〜3文で書いてください。"
+      : "これから始まるバトルの前口上を2〜3文で書いてください。",
     `舞台: ${ingredients.stage}`,
-    `二人の関係: ${ingredients.relation}`,
-    `青コーナー:「${first.title}」こと ${first.name}。${first.description}`,
-    `赤コーナー:「${second.title}」こと ${second.name}。${second.description}`,
+    `${tag ? "両チームの関係" : "二人の関係"}: ${ingredients.relation}`,
+    ...firstTeam.map((fighter) => cornerLine("青コーナー", fighter)),
+    ...secondTeam.map((fighter) => cornerLine("赤コーナー", fighter)),
     "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
   ].join("\n");
 }
@@ -151,15 +164,22 @@ export function buildDefeatSpeechPrompt(
   ].join("\n");
 }
 
-/** バトル開始時の煽り実況用プロンプトを組み立てます。 */
+/** バトル開始時の煽り実況用プロンプトを組み立てます(1v1・2v2共通)。 */
 export function buildIntroPrompt(
-  first: { name: string; title: string },
-  second: { name: string; title: string },
+  firstTeam: readonly { name: string; title: string }[],
+  secondTeam: readonly { name: string; title: string }[],
 ): string {
+  const tag = isTagBattle(firstTeam, secondTeam);
+  const cornerLine = (
+    corner: string,
+    fighter: { name: string; title: string },
+  ): string => `${corner}:「${fighter.title}」こと ${fighter.name}`;
   return [
-    "これからバトルが始まります。開始の煽り実況をしてください。",
-    `青コーナー:「${first.title}」こと ${first.name}`,
-    `赤コーナー:「${second.title}」こと ${second.name}`,
+    tag
+      ? "これから2対2のタッグバトルが始まります。開始の煽り実況をしてください。"
+      : "これからバトルが始まります。開始の煽り実況をしてください。",
+    ...firstTeam.map((fighter) => cornerLine("青コーナー", fighter)),
+    ...secondTeam.map((fighter) => cornerLine("赤コーナー", fighter)),
   ].join("\n");
 }
 

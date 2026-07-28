@@ -295,3 +295,13 @@ export interface BattleResult {
   /** 敗者ID。引き分けの場合は null */
   loserId: string | null;
 }
+
+/** チーム戦の勝敗サイドです。simulateTeamBattle の第1引数のチームが "first" です。 */
+export type BattleSide = "first" | "second";
+
+/** チーム戦(1v1・2v2共通)のバトル全体の結果です。 */
+export interface TeamBattleResult {
+  events: BattleEvent[];
+  /** 勝利したサイド。引き分けの場合は null */
+  winner: BattleSide | null;
+}

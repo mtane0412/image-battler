@@ -50,7 +50,9 @@ export function initApp(root: HTMLElement): void {
         main.replaceChildren(renderCreate(ctx));
         break;
       case "battle":
-        main.replaceChildren(renderBattle(ctx, screen.first, screen.second));
+        main.replaceChildren(
+          renderBattle(ctx, screen.firstTeam, screen.secondTeam),
+        );
         break;
     }
     window.scrollTo(0, 0);
