@@ -820,9 +820,8 @@ body:has(.battle-screen) .app-logo {
 /* ---------- バトルロイヤルのステージ ---------- */
 
 /* ロイヤルはチーム分け・VSマークなしで全員を1つの折り返しグリッドに並べます。
-   subgrid の行共有は折り返しに対応できないため使わず、auto-fit + minmax で
-   3〜10人・全ビューポートにメディアクエリなしで追従します(空トラックは
-   auto-fit が畳むため justify-content: center で常に中央揃えになります) */
+   auto-fit + minmax で3〜10人・全ビューポートにメディアクエリなしで追従します
+   (空トラックは auto-fit が畳むため justify-content: center で常に中央揃えです) */
 .stage-royale {
   grid-template-columns: repeat(auto-fit, minmax(140px, 160px));
   grid-template-rows: none;
@@ -830,12 +829,15 @@ body:has(.battle-screen) .app-logo {
   gap: 10px;
 }
 
-/* 既定の .fighter は親の9行subgrid(grid-row: 1 / -1)を前提にしているため、
-   折り返しグリッドでは自前の9区画に切り替えます(上書きしないと配置が崩れます) */
+/* 既定の .fighter は「親の全行に展開(grid-row: 1 / -1)」を前提にしているため、
+   折り返しグリッドでは「9行スパンのsubgrid」に切り替えます。同じ段に並ぶ
+   ファイターどうしで9区画の行の高さを共有するため、名前が2行に折り返しても
+   区画の縦位置が揃います(ロースターの .roster-item と同じ手法です)。
+   区画内の行間は0にして(親の gap の継承を打ち消し)、余白は各要素の margin で
+   表現します。段と段の間隔には親の row-gap(10px)がそのまま使われます */
 .stage-royale .fighter {
-  grid-row: auto;
-  grid-template-rows: repeat(9, auto);
-  align-content: start;
+  grid-row: span 9;
+  row-gap: 0;
 }
 
 /* ロイヤルの枠色はチーム色(青/赤)の代わりに全員共通の金色にします */
