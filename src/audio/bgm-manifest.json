@@ -1,0 +1,32 @@
+{
+  "fantasy03": {
+    "file": "maou_loop_bgm_fantasy03.mp3",
+    "source": "https://maou.audio/sound/bgm/maou_loop_bgm_fantasy03.mp3",
+    "page": "https://maou.audio/bgm_fantasy03/",
+    "label": "ファンタジー03(戦闘曲)"
+  },
+  "fantasy04": {
+    "file": "maou_loop_bgm_fantasy04.mp3",
+    "source": "https://maou.audio/sound/bgm/maou_loop_bgm_fantasy04.mp3",
+    "page": "https://maou.audio/bgm_fantasy04/",
+    "label": "ファンタジー04(戦闘曲)"
+  },
+  "fantasy11": {
+    "file": "maou_loop_bgm_fantasy11.mp3",
+    "source": "https://maou.audio/sound/bgm/maou_loop_bgm_fantasy11.mp3",
+    "page": "https://maou.audio/bgm_fantasy11/",
+    "label": "ファンタジー11(戦闘曲「bravery heart」)"
+  },
+  "fantasy12": {
+    "file": "maou_loop_bgm_fantasy12.mp3",
+    "source": "https://maou.audio/sound/bgm/maou_loop_bgm_fantasy12.mp3",
+    "page": "https://maou.audio/bgm_fantasy12/",
+    "label": "ファンタジー12(戦闘曲「戦術的構想」)"
+  },
+  "fantasy15": {
+    "file": "maou_loop_bgm_fantasy15.mp3",
+    "source": "https://maou.audio/sound/bgm/maou_loop_bgm_fantasy15.mp3",
+    "page": "https://maou.audio/bgm_fantasy15/",
+    "label": "ファンタジー15(戦闘曲「駆け抜ける戦場の嵐」)"
+  }
+}

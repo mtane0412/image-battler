@@ -15,6 +15,7 @@ import {
 } from "../storage/repository";
 import { checkNanoAvailability } from "../ai/nano";
 import { characterCard } from "./card";
+import { bgmToggleButton } from "./bgm-toggle";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
 
@@ -240,7 +241,11 @@ export function renderHome(ctx: AppContext): HTMLElement {
       el("span", { className: "vs-mark", text: "VS" }),
       vsSide(secondTeam, "p2", teamSize()),
       el("div", { className: "vs-panel-action" }, [
-        startButton,
+        // BGM設定はバトル開始前にここで切り替えます(バトル画面でも切り替え可能)
+        el("div", { className: "vs-panel-buttons" }, [
+          startButton,
+          bgmToggleButton(),
+        ]),
         el("p", { className: "vs-hint", text: hintText }),
       ]),
     );

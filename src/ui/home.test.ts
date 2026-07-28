@@ -1,11 +1,12 @@
 /**
  * @file ホーム画面(home.ts)のテストです。
  * バトル形式(1vs1 / 2vs2)の切り替えと、カード選択からチーム編成で
- * バトル画面へ遷移することを確認します。
+ * バトル画面へ遷移すること、BGM設定(ON/OFF)の切り替えを確認します。
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHome } from "./home";
 import { STORAGE_KEY, STORAGE_VERSION } from "../storage/repository";
+import { loadBgmEnabled, saveBgmEnabled } from "../audio/bgm";
 import { makeCharacter } from "../testing/fixtures";
 import type { AppContext } from "./navigation";
 import type { Character } from "../types";
@@ -154,5 +155,56 @@ describe("renderHome: バトル形式の切り替えとチーム編成", () => {
 
     findModeButton(screen, "2vs2").click();
     expect(screen.querySelectorAll(".slot-badge")).toHaveLength(0);
+  });
+});
+
+/** 表示中のBGM切り替えボタンを取得します。 */
+function findBgmButton(screen: HTMLElement): HTMLButtonElement {
+  const found = [...screen.querySelectorAll("button")].find((node) =>
+    node.textContent?.includes("BGM"),
+  );
+  if (found === undefined) {
+    throw new Error("BGMボタンがみつかりません");
+  }
+  return found;
+}
+
+describe("renderHome: BGM設定の切り替え", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("未設定のときBGMボタンはON表示になる(既定はON)", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    const bgmButton = findBgmButton(screen);
+    expect(bgmButton.textContent).toContain("BGM ON");
+    expect(bgmButton.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("BGMボタンを押すとOFF表示に切り替わり、設定が保存される", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    const bgmButton = findBgmButton(screen);
+    bgmButton.click();
+
+    expect(bgmButton.textContent).toContain("BGM OFF");
+    expect(bgmButton.getAttribute("aria-pressed")).toBe("false");
+    expect(loadBgmEnabled()).toBe(false);
+  });
+
+  it("保存されたOFF設定は画面を描画し直しても維持される", () => {
+    seedCharacters();
+    saveBgmEnabled(false);
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    const bgmButton = findBgmButton(screen);
+    expect(bgmButton.textContent).toContain("BGM OFF");
+    expect(bgmButton.getAttribute("aria-pressed")).toBe("false");
   });
 });

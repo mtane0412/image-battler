@@ -49,6 +49,7 @@ Gemini Nano(Prompt API)の利用には以下が必要です。
 ```bash
 npm install
 npm run fetch:se    # 効果音素材のダウンロード(初回と素材一覧の変更時。効果音ラボから取得)
+npm run fetch:bgm   # BGM素材のダウンロード(初回と素材一覧の変更時。魔王魂から取得)
 npm run dev         # 開発サーバー(http://localhost:5173)
 npm test            # テスト実行(Vitest)
 npm run lint        # Lint
@@ -66,6 +67,7 @@ npm run build       # 本番ビルド(dist/ に静的ファイルを出力)
 | 実況生成 | `src/ai/nano.ts` + `src/ai/prompts.ts`(セッションを clone してコンテキスト肥大を防止) |
 | 永続化 | localStorage(`src/storage/repository.ts`。画像は 256px JPEG DataURL に縮小して保存) |
 | 効果音 | [効果音ラボ](https://soundeffect-lab.info/) の素材(`src/audio/se.ts`。必殺技は技名の属性キーワードで固有音を自動割り当て) |
+| BGM | [魔王魂](https://maou.audio/) のファンタジー戦闘曲(`src/audio/bgm.ts`。バトルごとにランダムに1曲をループ再生。ON/OFF設定は localStorage に保存) |
 | テスト | Vitest + jsdom(バトルエンジン・パーサー・リポジトリ・プロンプト・AIラッパー) |
 
 ## 設計方針
@@ -74,19 +76,20 @@ npm run build       # 本番ビルド(dist/ に静的ファイルを出力)
 - **明示的フォールバック(1箇所のみ)**: バトル中の実況生成に失敗した場合、失敗をログに明示した上でメカニカルなバトルログのみで進行を続けます。バトル本体は JavaScript 側で完結しており、演出の失敗でゲーム全体を止めない設計です(`src/ui/battle.ts` 冒頭コメント参照)
 - **完全無料運営**: オンデバイス AI + localStorage のため、GitHub Pages や Vercel などの静的ホスティングに `dist/` を置くだけで運営できます
 
-## 効果音素材について
+## 音素材について
 
-効果音は [効果音ラボ](https://soundeffect-lab.info/) の素材を使用しています。
+効果音は [効果音ラボ](https://soundeffect-lab.info/)、BGMは [魔王魂](https://maou.audio/) の素材を使用しています。
 
-- 効果音ラボの利用規約では**素材そのものの再配布が禁止**されているため、音声ファイルはリポジトリにコミットしていません(`public/se/` は gitignore 済み)
-- `npm run fetch:se` を実行すると `src/audio/se-manifest.json` の一覧に従って `public/se/` にダウンロードされます(取得済みファイルはスキップされます)
-- ゲームとしてビルド・公開すること(`dist/` への同梱)は規約上許可されています
+- 両サイトとも利用規約で**素材そのものの再配布が禁止**されているため、音声ファイルはリポジトリにコミットしていません(`public/se/`・`public/bgm/` は gitignore 済み)
+- `npm run fetch:se` を実行すると `src/audio/se-manifest.json` の一覧に従って `public/se/` に、`npm run fetch:bgm` を実行すると `src/audio/bgm-manifest.json` の一覧に従って `public/bgm/` にダウンロードされます(取得済みファイルはスキップされます)
+- ゲームとしてビルド・公開すること(`dist/` への同梱)は両サイトとも規約上許可されています。魔王魂の規約に従い、アプリのフッターにクレジットを表記しています
+- BGMは魔王魂のファンタジー戦闘曲5曲(ファンタジー03・04・11・12・15 のループ版)で、バトルごとにランダムに1曲を選んでループ再生します。BGMのON/OFFはホーム画面(バトルスタートの隣)とバトル画面で切り替えられます
 
 ## デプロイ
 
 ### Vercel
 
-リポジトリ直下の `vercel.json` にビルド設定を定義しています。効果音素材が git 管理外のため、ビルドコマンドは `npm run fetch:se && npm run build` になっており、Vercel のビルド時に効果音を取得してから `dist/` に同梱します。
+リポジトリ直下の `vercel.json` にビルド設定を定義しています。効果音・BGM素材が git 管理外のため、ビルドコマンドは `npm run fetch:se && npm run fetch:bgm && npm run build` になっており、Vercel のビルド時に音素材を取得してから `dist/` に同梱します。
 
 ```bash
 vercel login          # 初回のみ: ブラウザでログイン
@@ -101,6 +104,7 @@ GitHub リポジトリを Vercel プロジェクトに接続すると、push の
 
 ```bash
 npm run fetch:se    # 効果音素材を取得(未取得の場合)
+npm run fetch:bgm   # BGM素材を取得(未取得の場合)
 npm run build
 # dist/ を GitHub Pages / Cloudflare Pages などにアップロード
 ```

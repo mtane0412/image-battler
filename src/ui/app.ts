@@ -1,11 +1,14 @@
 /**
  * @file アプリのルート(画面切り替え)です。ヘッダーと現在の画面を描画します。
+ * バトル画面以外へ切り替わるときにBGMを停止します(ヘッダーのロゴなど、
+ * どの経路でバトル画面を離れても確実に止めるため、ここで一括して行います)。
  */
 import { el } from "./dom";
 import type { AppContext, Screen } from "./navigation";
 import { renderHome } from "./home";
 import { renderCreate } from "./create";
 import { renderBattle } from "./battle";
+import { getSharedBgmPlayer } from "../audio/bgm";
 
 /** アプリを初期化し、ホーム画面を表示します。 */
 export function initApp(root: HTMLElement): void {
@@ -37,11 +40,36 @@ export function initApp(root: HTMLElement): void {
     el("p", {
       text: "キャラクター生成には Chrome 内蔵のローカルAI「Gemini Nano」を使用します(初回のみ数GBのモデルを端末にダウンロードします)。",
     }),
+    // 音素材のクレジット表記です(各サイトの利用規約に従い、配布元リンクを併記します)
+    el("p", { className: "app-credits" }, [
+      "BGM: ",
+      el("a", {
+        text: "魔王魂",
+        attrs: {
+          href: "https://maou.audio/",
+          target: "_blank",
+          rel: "noopener noreferrer",
+        },
+      }),
+      " / 効果音: ",
+      el("a", {
+        text: "効果音ラボ",
+        attrs: {
+          href: "https://soundeffect-lab.info/",
+          target: "_blank",
+          rel: "noopener noreferrer",
+        },
+      }),
+    ]),
   ]);
 
   root.replaceChildren(header, main, footer);
 
   function render(screen: Screen): void {
+    // バトル画面以外ではBGMを止めます(再生の開始はバトル画面側で行います)
+    if (screen.name !== "battle") {
+      getSharedBgmPlayer().stop();
+    }
     switch (screen.name) {
       case "home":
         main.replaceChildren(renderHome(ctx));
