@@ -534,11 +534,12 @@ body:has(.battle-screen) .app-logo {
   transform: translateY(-3px);
 }
 
-/* デフォルトステージは stageCard() と同じ構造(画像枠・タイトル・名前・説明)に
-   揃え、画像枠は空のプレースホルダー(.card-portrait の背景色のみ)にします */
+/* デフォルトステージは stageCard() と全く同じ行構成(画像枠・タイトル・名前・
+   説明・とくしゅいべんと・とくせい)にして、縦幅が他のステージカードと
+   自然に揃うようにします。画像枠は空のプレースホルダーです */
 .stage-card-default {
   width: 100%;
-  text-align: center;
+  text-align: left;
   color: inherit;
   font: inherit;
 }
@@ -688,15 +689,35 @@ body:has(.battle-screen) .app-logo {
   background: rgba(255, 210, 74, 0.12);
 }
 
-/* バトルスタートの隣に表示する、選択中ステージの小さいアイコンです
-   (デフォルトステージのときは表示しません)。 */
+/*
+ * バトルスタートの隣に表示する、選択中ステージの小さいアイコンです。
+ * クリックするとステージ選択セクションまでスクロールします
+ * (デフォルトステージのときも「—」のプレースホルダーを表示します)。
+ */
+.stage-indicator-button {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 .stage-indicator {
+  display: block;
   width: 44px;
   height: 44px;
   border-radius: 50%;
   border: 2px solid var(--gold);
   object-fit: cover;
-  flex-shrink: 0;
+}
+
+.stage-indicator-default {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: var(--arena);
+  font-size: 18px;
 }
 
 .vs-hint {

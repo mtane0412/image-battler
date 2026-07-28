@@ -184,8 +184,10 @@ export function renderHome(ctx: AppContext): HTMLElement {
   );
 
   const roster = el("div", { className: "roster" });
+  // vsPanel(バトルスタートのバー)はステージセクションの下に表示するため、
+  // DOM追加はここでは行わず appendStageSection() の後に行います
   const vsPanel = el("div", { className: "vs-panel" });
-  screen.append(modeToggle, roster, vsPanel);
+  screen.append(modeToggle, roster);
 
   function makeModeButton(value: BattleMode): HTMLButtonElement {
     const node = button(
@@ -254,27 +256,34 @@ export function renderHome(ctx: AppContext): HTMLElement {
 
   /**
    * バトルスタートの隣に表示する、選択中ステージの小さいアイコンです。
-   * デフォルトステージ(未選択)のときは何も表示しません。
+   * デフォルトステージ(未選択)のときも「—」のプレースホルダーを表示します。
+   * クリックするとステージ選択セクションまでスクロールします。
    */
-  function stageIndicator(): HTMLElement | null {
+  function stageIndicator(): HTMLElement {
     const stage = selectedStage();
-    if (stage === null) {
-      return null;
-    }
-    return el("img", {
-      className: "stage-indicator",
-      attrs: { src: stage.imageDataUrl, alt: "", title: stage.name },
+    const indicatorButton = el("button", {
+      className: "stage-indicator-button",
+      attrs: {
+        type: "button",
+        title: stage === null ? "デフォルトステージ(こうかなし)" : stage.name,
+        "aria-label": "ステージ選択までスクロール",
+      },
     });
-  }
-
-  /**
-   * vs-panel-buttons に差し込むステージアイコンです。
-   * el() の children にそのままスプレッドできるよう配列で返します
-   * (デフォルトステージのときは空配列)。
-   */
-  function vsPanelIndicator(): HTMLElement[] {
-    const indicator = stageIndicator();
-    return indicator === null ? [] : [indicator];
+    indicatorButton.append(
+      stage === null
+        ? el("span", {
+            className: "stage-indicator stage-indicator-default",
+            text: "—",
+          })
+        : el("img", {
+            className: "stage-indicator",
+            attrs: { src: stage.imageDataUrl, alt: "" },
+          }),
+    );
+    indicatorButton.addEventListener("click", () => {
+      stageRoster.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return indicatorButton;
   }
 
   function selectStage(id: string | null): void {
@@ -322,6 +331,16 @@ export function renderHome(ctx: AppContext): HTMLElement {
           className: "card-desc stage-card-desc",
           text: "とくに効果はありません",
         }),
+        // stageCard() と行構成を揃えて縦幅を合わせるため、
+        // とくしゅいべんと・とくせいの行も(内容「なし」で)表示します
+        el("div", { className: "card-special stage-card-event" }, [
+          el("span", { className: "card-special-label", text: "とくしゅいべんと" }),
+          el("span", { className: "card-special-name", text: "なし" }),
+        ]),
+        el("div", { className: "card-passive stage-card-trait" }, [
+          el("span", { className: "card-passive-label", text: "とくせい" }),
+          el("span", { className: "card-passive-name", text: "なし" }),
+        ]),
       ],
     );
     defaultButton.addEventListener("click", () => selectStage(null));
@@ -461,7 +480,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       el("div", { className: "vs-panel-action" }, [
         // BGM設定はバトル開始前にここで切り替えます(バトル画面でも切り替え可能)
         el("div", { className: "vs-panel-buttons" }, [
-          ...vsPanelIndicator(),
+          stageIndicator(),
           startButton,
           bgmToggleButton(),
         ]),
@@ -499,7 +518,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       el("div", { className: "vs-royale-entries" }, slots),
       el("div", { className: "vs-panel-action" }, [
         el("div", { className: "vs-panel-buttons" }, [
-          ...vsPanelIndicator(),
+          stageIndicator(),
           startButton,
           bgmToggleButton(),
         ]),
@@ -509,6 +528,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
   }
 
   appendStageSection();
+  screen.append(vsPanel);
 
   renderRoster();
   renderVsPanel();
