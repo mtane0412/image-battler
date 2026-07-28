@@ -506,6 +506,60 @@ body:has(.battle-screen) .app-logo {
   width: 100%;
 }
 
+/* ---------- ステージ選択(ホーム) ---------- */
+
+/* ステージカードは行数構成(画像/名前/紹介文/とくせい/イベント)が
+   ファイターカードと異なるため、.roster-item のサブグリッド指定
+   (8行共有)を打ち消して通常の縦積みフローに戻します */
+.stage-roster-item {
+  display: block;
+  grid-row: auto;
+}
+
+.stage-roster-item .card {
+  display: block;
+  grid-row: auto;
+  grid-template-rows: none;
+}
+
+.stage-clickable {
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.stage-clickable:hover {
+  transform: translateY(-3px);
+}
+
+.stage-card-default {
+  width: 100%;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  color: inherit;
+  font: inherit;
+}
+
+.stage-card-default-label {
+  font-family: var(--font-dot);
+  font-size: 14px;
+}
+
+.stage-card-default-desc {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 選択中のステージは金色の枠で強調します(バトルロイヤルの選択と同色) */
+.selected-stage .card {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
 /* ---------- バトル形式の切り替え(ホーム) ---------- */
 
 .mode-toggle {
@@ -815,6 +869,45 @@ body:has(.battle-screen) .app-logo {
 /* 2vs2は4体を横に並べるため、1体あたりの幅を一段抑えます */
 .stage-2v2 .stage-team {
   grid-auto-columns: min(160px, 21vw);
+}
+
+/* ---------- 選択中ステージの背景・バナー ---------- */
+
+/* 背景は .stage 自身ではなく ::before 疑似要素に描画します。.stage は
+   9行のサブグリッドとして子要素のレイアウトを決める要素のため、直接
+   background-image や filter を当てると子要素(ファイター画像等)の
+   見た目まで巻き込んでしまいます。画像URLは battle.ts が
+   --stage-bg-image カスタムプロパティとして注入します */
+.stage.stage-has-background::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  background-image: var(--stage-bg-image);
+  background-size: cover;
+  background-position: center;
+  border-radius: 10px;
+  /* 縮小画像(長辺256px)の粗さを演出として隠しつつ、ファイターの視認性を保ちます */
+  filter: blur(2px) brightness(0.4);
+}
+
+.stage-banner {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin: 4px 0;
+  font-family: var(--font-dot);
+}
+
+.stage-banner-name {
+  font-size: 15px;
+  color: var(--gold);
+}
+
+.stage-banner-trait {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* ---------- バトルロイヤルのステージ ---------- */

@@ -2,7 +2,7 @@
  * @file キャラクターカードの描画です。ホーム(一覧)とキャラ作成(生成結果の
  * プレビュー)の両方で使用します。
  */
-import type { GeneratedStats, PassiveSkill, SpecialMove } from "../types";
+import type { GeneratedStage, GeneratedStats, PassiveSkill, SpecialMove } from "../types";
 import { AILMENT_LABELS, SPECIAL_MOVE_TYPE_LABELS } from "../types";
 import { STAT_RANGES } from "../ai/schema";
 import { el } from "./dom";
@@ -101,4 +101,48 @@ export function characterCard(data: CardData): HTMLElement {
     );
   }
   return card;
+}
+
+/**
+ * ステージカード描画に必要な最小限のデータです(Stage はこれを満たします)。
+ */
+export type StageCardData = GeneratedStage & {
+  name: string;
+  imageDataUrl: string;
+};
+
+/** ステージカード(画像・名前・紹介文・特性・特殊イベント)を描画します。 */
+export function stageCard(data: StageCardData): HTMLElement {
+  return el("article", { className: "card stage-card" }, [
+    el("div", { className: "card-portrait stage-card-portrait" }, [
+      el("img", {
+        attrs: { src: data.imageDataUrl, alt: `${data.name}の画像` },
+      }),
+    ]),
+    el("p", { className: "card-title stage-card-title", text: data.title }),
+    el("h3", { className: "card-name stage-card-name", text: data.name }),
+    el("p", { className: "card-desc stage-card-desc", text: data.description }),
+    el("div", { className: "card-passive stage-card-trait" }, [
+      el("span", { className: "card-passive-label", text: "とくせい" }),
+      el("span", {
+        className: "card-passive-name stage-card-trait-name",
+        text: data.trait.name,
+      }),
+      el("span", {
+        className: "card-passive-desc stage-card-trait-desc",
+        text: data.trait.description,
+      }),
+    ]),
+    el("div", { className: "card-special stage-card-event" }, [
+      el("span", { className: "card-special-label", text: "とくしゅいべんと" }),
+      el("span", {
+        className: "card-special-name stage-card-event-name",
+        text: data.event.name,
+      }),
+      el("span", {
+        className: "card-special-desc stage-card-event-desc",
+        text: data.event.description,
+      }),
+    ]),
+  ]);
 }

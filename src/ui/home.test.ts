@@ -6,10 +6,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHome } from "./home";
 import { STORAGE_KEY, STORAGE_VERSION } from "../storage/repository";
+import {
+  STAGE_STORAGE_KEY,
+  STAGE_STORAGE_VERSION,
+} from "../storage/stage-repository";
 import { loadBgmEnabled, saveBgmEnabled } from "../audio/bgm";
-import { makeCharacter } from "../testing/fixtures";
+import { makeCharacter, makeStage } from "../testing/fixtures";
 import type { AppContext } from "./navigation";
-import type { Character } from "../types";
+import type { Character, Stage } from "../types";
 
 /** テスト用の4体のファイターを localStorage に保存して返します。 */
 function seedCharacters(): Character[] {
@@ -31,6 +35,28 @@ function clickCard(screen: HTMLElement, index: number): void {
   const card = screen.querySelectorAll<HTMLElement>(".card-clickable").item(index);
   expect(card).not.toBeNull();
   card.click();
+}
+
+/** テスト用のステージを localStorage に保存して返します。 */
+function seedStages(): Stage[] {
+  const stages = [
+    makeStage({ id: "s1", name: "灼熱の闘技場" }),
+    makeStage({ id: "s2", name: "極寒の氷原" }),
+  ];
+  localStorage.setItem(
+    STAGE_STORAGE_KEY,
+    JSON.stringify({ version: STAGE_STORAGE_VERSION, stages }),
+  );
+  return stages;
+}
+
+/** ステージロースター上の index 番目の選択可能要素をクリックして選択します。 */
+function clickStage(screen: HTMLElement, index: number): void {
+  const item = screen
+    .querySelectorAll<HTMLElement>(".stage-clickable")
+    .item(index);
+  expect(item).not.toBeNull();
+  item.click();
 }
 
 /** 表示中の「バトルスタート」ボタンを取得します。 */
@@ -75,6 +101,7 @@ describe("renderHome: バトル形式の切り替えとチーム編成", () => {
       name: "battle",
       firstTeam: [characters[0]],
       secondTeam: [characters[1]],
+      stage: null,
     });
   });
 
@@ -124,6 +151,7 @@ describe("renderHome: バトル形式の切り替えとチーム編成", () => {
       name: "battle",
       firstTeam: [characters[0], characters[1]],
       secondTeam: [characters[2], characters[3]],
+      stage: null,
     });
   });
 
@@ -217,6 +245,7 @@ describe("renderHome: バトルロイヤル(3〜5人)の編成", () => {
     expect(ctx.navigate).toHaveBeenCalledWith({
       name: "royale",
       fighters: [characters[0], characters[1], characters[2]],
+      stage: null,
     });
   });
 
@@ -236,6 +265,7 @@ describe("renderHome: バトルロイヤル(3〜5人)の編成", () => {
     expect(ctx.navigate).toHaveBeenCalledWith({
       name: "royale",
       fighters: characters.slice(0, 5),
+      stage: null,
     });
   });
 
@@ -330,5 +360,96 @@ describe("renderHome: BGM設定の切り替え", () => {
     const bgmButton = findBgmButton(screen);
     expect(bgmButton.textContent).toContain("BGM OFF");
     expect(bgmButton.getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("renderHome: ステージの選択", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("ステージ未選択(デフォルト)のままバトルへ遷移すると stage は null になる", () => {
+    const characters = seedCharacters();
+    seedStages();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+    findStartButton(screen).click();
+
+    expect(ctx.navigate).toHaveBeenCalledWith({
+      name: "battle",
+      firstTeam: [characters[0]],
+      secondTeam: [characters[1]],
+      stage: null,
+    });
+  });
+
+  it("ステージを選択してバトルへ遷移すると選択したステージが渡される", () => {
+    const characters = seedCharacters();
+    const stages = seedStages();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    // 先頭(index 0)はデフォルトステージのため、1番目が保存済みステージの先頭になる
+    clickStage(screen, 1);
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+    findStartButton(screen).click();
+
+    expect(ctx.navigate).toHaveBeenCalledWith({
+      name: "battle",
+      firstTeam: [characters[0]],
+      secondTeam: [characters[1]],
+      stage: stages[0],
+    });
+  });
+
+  it("バトルロイヤルでも選択したステージが渡される", () => {
+    const characters = seedCharacters();
+    const stages = seedStages();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "バトルロイヤル").click();
+    clickStage(screen, 1);
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+    clickCard(screen, 2);
+    findStartButton(screen).click();
+
+    expect(ctx.navigate).toHaveBeenCalledWith({
+      name: "royale",
+      fighters: [characters[0], characters[1], characters[2]],
+      stage: stages[0],
+    });
+  });
+
+  it("「+ 新しいステージをつくる」を押すとステージ作成画面へ遷移する", () => {
+    seedCharacters();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    const createButton = [...screen.querySelectorAll("button")].find(
+      (node) => node.textContent === "+ 新しいステージをつくる",
+    );
+    expect(createButton).not.toBeUndefined();
+    createButton?.click();
+
+    expect(ctx.navigate).toHaveBeenCalledWith({ name: "stage-create" });
+  });
+
+  it("ファイターが0体でもステージ作成への導線とステージ選択が表示される", () => {
+    seedStages();
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    expect(
+      [...screen.querySelectorAll("button")].some(
+        (node) => node.textContent === "+ 新しいステージをつくる",
+      ),
+    ).toBe(true);
+    expect(screen.querySelectorAll(".stage-clickable")).toHaveLength(3);
   });
 });

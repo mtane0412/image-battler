@@ -43,6 +43,7 @@ import type {
   BattleEvent,
   Character,
   CombatantSnapshot,
+  Stage,
 } from "../types";
 import { AILMENT_LABELS } from "../types";
 import { simulateRoyale, simulateTeamBattle } from "../battle/engine";
@@ -144,26 +145,43 @@ function victoryRepresentative(
   return survivor ?? teamHead(team);
 }
 
-/** バトル画面の形式ごとの設定です(チーム戦 or バトルロイヤル)。 */
+/**
+ * バトル画面の形式ごとの設定です(チーム戦 or バトルロイヤル)。
+ * stage は選択中のステージで、未選択(デフォルトステージ)の場合は null です。
+ * DOMレイアウト用のローカル変数 `stage`(下記)と名前が衝突するため、
+ * 参照は必ず `setup.stage` を経由します。
+ */
 type BattleSetup =
-  | { kind: "teams"; firstTeam: Character[]; secondTeam: Character[] }
-  | { kind: "royale"; fighters: Character[] };
+  | {
+      kind: "teams";
+      firstTeam: Character[];
+      secondTeam: Character[];
+      stage: Stage | null;
+    }
+  | { kind: "royale"; fighters: Character[]; stage: Stage | null };
 
 /** チーム戦(1v1・2v2)のバトル画面を描画し、再生を開始します。 */
 export function renderBattle(
   ctx: AppContext,
   firstTeam: Character[],
   secondTeam: Character[],
+  stage: Stage | null,
 ): HTMLElement {
-  return renderBattleScreen(ctx, { kind: "teams", firstTeam, secondTeam });
+  return renderBattleScreen(ctx, {
+    kind: "teams",
+    firstTeam,
+    secondTeam,
+    stage,
+  });
 }
 
 /** バトルロイヤル(完全FFA)のバトル画面を描画し、再生を開始します。 */
 export function renderRoyale(
   ctx: AppContext,
   fighters: Character[],
+  stage: Stage | null,
 ): HTMLElement {
-  return renderBattleScreen(ctx, { kind: "royale", fighters });
+  return renderBattleScreen(ctx, { kind: "royale", fighters, stage });
 }
 
 /** バトル画面の共通実装です(再生ロジックはチーム戦・ロイヤルで完全に共有します)。 */
@@ -278,6 +296,27 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
     byId[participant.character.id] = participant;
   }
 
+  // --- ステージ演出(背景・バナー) ---
+  // 背景は .stage 自身ではなく ::before 疑似要素(styles.css)に描画します。
+  // .stage は9行のサブグリッドとして子要素のレイアウトを決める要素のため、
+  // 直接 background-image や filter を .stage に当てると子要素のレイアウトや
+  // 見た目まで巻き込んでしまうためです(画像URLは CSS カスタムプロパティで渡します)。
+  let stageBanner: HTMLElement | null = null;
+  if (setup.stage !== null) {
+    stage.classList.add("stage-has-background");
+    stage.style.setProperty(
+      "--stage-bg-image",
+      `url(${JSON.stringify(setup.stage.imageDataUrl)})`,
+    );
+    stageBanner = el("div", { className: "stage-banner" }, [
+      el("span", { className: "stage-banner-name", text: setup.stage.name }),
+      el("span", {
+        className: "stage-banner-trait",
+        text: setup.stage.trait.name,
+      }),
+    ]);
+  }
+
   /** キャラクターに対応する参加者情報を取り出します(欠落はデータ不正)。 */
   function participantOf(character: Character): BattleParticipant {
     const participant = byId[character.id];
@@ -317,8 +356,9 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
             name: "battle",
             firstTeam: setup.firstTeam,
             secondTeam: setup.secondTeam,
+            stage: setup.stage,
           }
-        : { name: "royale", fighters: setup.fighters },
+        : { name: "royale", fighters: setup.fighters, stage: setup.stage },
     );
   });
 
@@ -332,6 +372,7 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
   });
 
   screen.append(
+    ...(stageBanner !== null ? [stageBanner] : []),
     stage,
     logWindow,
     resultBanner,
@@ -349,8 +390,12 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
   async function playBattle(): Promise<void> {
     const { events, winners, losers } = runSimulation();
     // 前口上とセリフで共用するストーリー材料(舞台・因縁)を抽選します。
-    // 材料が毎試合変わることが、決定論的なモデルでの変化の源です
-    const storyIngredients = sampleStoryIngredients();
+    // 材料が毎試合変わることが、決定論的なモデルでの変化の源です。
+    // ステージを選択している場合は、抽選した舞台を選択中のステージ名で
+    // 上書きします(乱数消費順を変えないため、抽選自体は常に行います)
+    const storyIngredients = sampleStoryIngredients(Math.random, {
+      stage: setup.stage?.title,
+    });
     // 前口上(ストーリー)の生成は待ち時間を稼ぐため最初に開始し、
     // 実況セッションの準備と並行させます
     const storyPromise = generateBattleStory(storyPromptFor(storyIngredients));
@@ -652,6 +697,7 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
         setup.firstTeam,
         setup.secondTeam,
         Math.random,
+        setup.stage,
       );
       if (result.winner === null) {
         return { events: result.events, winners: null, losers: null };
@@ -662,7 +708,7 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
           : [setup.secondTeam, setup.firstTeam];
       return { events: result.events, winners, losers };
     }
-    const result = simulateRoyale(setup.fighters, Math.random);
+    const result = simulateRoyale(setup.fighters, Math.random, setup.stage);
     const outcome = royaleOutcome(setup.fighters, result.winnerId);
     if (outcome === null) {
       return { events: result.events, winners: null, losers: null };

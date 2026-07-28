@@ -3,8 +3,14 @@
  * 必殺技・パッシブスキルの説明文がカード上に表示されることを確認します。
  */
 import { describe, expect, it } from "vitest";
-import { characterCard } from "./card";
-import { makeCharacter, makePassive, makeSpecialMove } from "../testing/fixtures";
+import { characterCard, stageCard } from "./card";
+import {
+  makeCharacter,
+  makePassive,
+  makeSpecialMove,
+  makeStageEvent,
+  makeStageTrait,
+} from "../testing/fixtures";
 
 describe("characterCard", () => {
   it("必殺技の説明文を表示する", () => {
@@ -57,5 +63,69 @@ describe("characterCard", () => {
   it("パッシブスキルがないとき(移行キャラ)はパッシブ行を表示しない", () => {
     const card = characterCard(makeCharacter({ passive: null }));
     expect(card.querySelector(".card-passive")).toBeNull();
+  });
+});
+
+describe("stageCard", () => {
+  it("ステージ名・紹介文・画像を表示する", () => {
+    const card = stageCard({
+      name: "灼熱の闘技場",
+      title: "業火の舞台",
+      description: "溶岩が渦巻く、灼熱に包まれたステージです",
+      trait: makeStageTrait("blazing"),
+      event: makeStageEvent("meteor"),
+      imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
+    });
+    expect(card.querySelector(".stage-card-name")?.textContent).toBe(
+      "灼熱の闘技場",
+    );
+    expect(card.querySelector(".stage-card-title")?.textContent).toBe(
+      "業火の舞台",
+    );
+    expect(card.querySelector(".stage-card-desc")?.textContent).toBe(
+      "溶岩が渦巻く、灼熱に包まれたステージです",
+    );
+    const img = card.querySelector<HTMLImageElement>(".stage-card-portrait img");
+    expect(img?.getAttribute("src")).toBe("data:image/jpeg;base64,dGVzdA==");
+  });
+
+  it("特性の名前・説明文を表示する", () => {
+    const card = stageCard({
+      name: "灼熱の闘技場",
+      title: "業火の舞台",
+      description: "説明",
+      trait: makeStageTrait("blazing", {
+        name: "灼熱のオーラ",
+        description: "全員の攻撃力が上がる",
+      }),
+      event: makeStageEvent("meteor"),
+      imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
+    });
+    expect(card.querySelector(".stage-card-trait-name")?.textContent).toBe(
+      "灼熱のオーラ",
+    );
+    expect(card.querySelector(".stage-card-trait-desc")?.textContent).toBe(
+      "全員の攻撃力が上がる",
+    );
+  });
+
+  it("特殊イベントの名前・説明文を表示する", () => {
+    const card = stageCard({
+      name: "灼熱の闘技場",
+      title: "業火の舞台",
+      description: "説明",
+      trait: makeStageTrait("blazing"),
+      event: makeStageEvent("meteor", {
+        name: "隕石落とし",
+        description: "隕石が降り注ぎ全員がダメージを受ける",
+      }),
+      imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
+    });
+    expect(card.querySelector(".stage-card-event-name")?.textContent).toBe(
+      "隕石落とし",
+    );
+    expect(card.querySelector(".stage-card-event-desc")?.textContent).toBe(
+      "隕石が降り注ぎ全員がダメージを受ける",
+    );
   });
 });

@@ -7,6 +7,7 @@ import { el } from "./dom";
 import type { AppContext, Screen } from "./navigation";
 import { renderHome } from "./home";
 import { renderCreate } from "./create";
+import { renderStageCreate } from "./stage-create";
 import { renderBattle, renderRoyale } from "./battle";
 import { getSharedBgmPlayer } from "../audio/bgm";
 
@@ -78,13 +79,18 @@ export function initApp(root: HTMLElement): void {
       case "create":
         main.replaceChildren(renderCreate(ctx));
         break;
+      case "stage-create":
+        main.replaceChildren(renderStageCreate(ctx));
+        break;
       case "battle":
         main.replaceChildren(
-          renderBattle(ctx, screen.firstTeam, screen.secondTeam),
+          renderBattle(ctx, screen.firstTeam, screen.secondTeam, screen.stage),
         );
         break;
       case "royale":
-        main.replaceChildren(renderRoyale(ctx, screen.fighters));
+        main.replaceChildren(
+          renderRoyale(ctx, screen.fighters, screen.stage),
+        );
         break;
     }
     window.scrollTo(0, 0);

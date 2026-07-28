@@ -1,18 +1,25 @@
 /**
- * @file 画面遷移の型定義です。ゲームはホーム・キャラ作成・バトル(チーム戦/
- * バトルロイヤル)の画面を単純な状態機械として切り替えます。
+ * @file 画面遷移の型定義です。ゲームはホーム・キャラ作成・ステージ作成・
+ * バトル(チーム戦/バトルロイヤル)の画面を単純な状態機械として切り替えます。
  */
-import type { Character } from "../types";
+import type { Character, Stage } from "../types";
 
 /**
  * 表示中の画面を表す状態です。バトルは1v1・2v2共通でチーム配列を、
- * バトルロイヤル(完全FFA)は参加者の配列を渡します。
+ * バトルロイヤル(完全FFA)は参加者の配列を渡します。stage は選択中のステージで、
+ * 未選択(デフォルトステージ)の場合は null です。
  */
 export type Screen =
   | { name: "home" }
   | { name: "create" }
-  | { name: "battle"; firstTeam: Character[]; secondTeam: Character[] }
-  | { name: "royale"; fighters: Character[] };
+  | { name: "stage-create" }
+  | {
+      name: "battle";
+      firstTeam: Character[];
+      secondTeam: Character[];
+      stage: Stage | null;
+    }
+  | { name: "royale"; fighters: Character[]; stage: Stage | null };
 
 /** 各画面に渡される遷移用コンテキストです。 */
 export interface AppContext {

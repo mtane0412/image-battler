@@ -8,15 +8,20 @@
  * バトルロイヤル(完全FFA): チームはなく、カードを選んだ順がそのまま
  * エントリー順になります(3〜5人)。
  */
-import type { Character } from "../types";
+import type { Character, Stage } from "../types";
 import {
   STORAGE_KEY,
   StorageError,
   deleteCharacter,
   loadCharacters,
 } from "../storage/repository";
+import {
+  STAGE_STORAGE_KEY,
+  deleteStage,
+  loadStages,
+} from "../storage/stage-repository";
 import { checkNanoAvailability } from "../ai/nano";
-import { characterCard } from "./card";
+import { characterCard, stageCard } from "./card";
 import { bgmToggleButton } from "./bgm-toggle";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
@@ -59,9 +64,34 @@ export function renderHome(ctx: AppContext): HTMLElement {
   try {
     characters = loadCharacters();
   } catch (error) {
-    screen.append(renderStorageError(error, ctx));
+    screen.append(renderStorageError(error, ctx, STORAGE_KEY, "ファイター"));
     return screen;
   }
+
+  // --- ステージ ---
+  // ファイターが0体でもステージ作成への導線・選択が見えるよう、
+  // ファイターの空状態判定より前にステージセクションを組み立てます。
+  let stages: Stage[];
+  try {
+    stages = loadStages();
+  } catch (error) {
+    screen.append(
+      renderStorageError(error, ctx, STAGE_STORAGE_KEY, "ステージ"),
+    );
+    return screen;
+  }
+  // 選択中のステージ(未選択 = デフォルトステージ = null)です
+  let selectedStageId: string | null = null;
+  const stageRoster = el("div", { className: "roster stage-roster" });
+  screen.append(
+    el("div", { className: "section-head" }, [
+      el("h2", { className: "section-title", text: "ステージ" }),
+      button("+ 新しいステージをつくる", "btn btn-primary", () =>
+        ctx.navigate({ name: "stage-create" }),
+      ),
+    ]),
+    stageRoster,
+  );
 
   screen.append(
     el("div", { className: "section-head" }, [
@@ -71,6 +101,8 @@ export function renderHome(ctx: AppContext): HTMLElement {
       ),
     ]),
   );
+
+  renderStageRoster();
 
   if (characters.length === 0) {
     screen.append(
@@ -198,6 +230,103 @@ export function renderHome(ctx: AppContext): HTMLElement {
     renderVsPanel();
   }
 
+  /**
+   * VSパネルを再描画します。ファイターが0体のときは vsPanel などの変数が
+   * まだ初期化されていない(空状態で早期returnしたコードパス)ため呼びません。
+   */
+  function renderVsPanelIfReady(): void {
+    if (characters.length > 0) {
+      renderVsPanel();
+    }
+  }
+
+  /** 現在選択中のステージを返します(未選択はデフォルトステージ = null)。 */
+  function selectedStage(): Stage | null {
+    if (selectedStageId === null) {
+      return null;
+    }
+    return stages.find((s) => s.id === selectedStageId) ?? null;
+  }
+
+  function selectStage(id: string | null): void {
+    selectedStageId = id;
+    renderStageRoster();
+    renderVsPanelIfReady();
+  }
+
+  function removeStage(id: string): void {
+    deleteStage(id);
+    stages = stages.filter((s) => s.id !== id);
+    if (selectedStageId === id) {
+      selectedStageId = null;
+    }
+    renderStageRoster();
+    renderVsPanelIfReady();
+  }
+
+  /**
+   * ステージロースター(デフォルトステージ + 保存済みステージ)を描画します。
+   * デフォルトステージ・保存済みステージのクリック領域には .stage-clickable を
+   * 付与し、ファイターカードの .card-clickable とセレクタを分離します。
+   */
+  function renderStageRoster(): void {
+    const defaultWrapper = el("div", {
+      className: `roster-item stage-roster-item${selectedStageId === null ? " selected-stage" : ""}`,
+    });
+    const defaultButton = el(
+      "button",
+      {
+        className: "card stage-card stage-card-default stage-clickable",
+        attrs: { type: "button", "aria-label": "デフォルトステージを選択" },
+      },
+      [
+        el("p", {
+          className: "stage-card-default-label",
+          text: "デフォルトステージ",
+        }),
+        el("p", {
+          className: "stage-card-default-desc",
+          text: "とくに効果はありません",
+        }),
+      ],
+    );
+    defaultButton.addEventListener("click", () => selectStage(null));
+    defaultWrapper.append(defaultButton);
+
+    stageRoster.replaceChildren(
+      defaultWrapper,
+      ...stages.map((stage) => {
+        const wrapper = el("div", {
+          className: `roster-item stage-roster-item${selectedStageId === stage.id ? " selected-stage" : ""}`,
+        });
+        const card = stageCard(stage);
+        card.classList.add("stage-clickable");
+        card.setAttribute("role", "button");
+        card.setAttribute("tabindex", "0");
+        card.setAttribute("aria-label", `${stage.name}をステージとして選択`);
+        card.addEventListener("click", () => selectStage(stage.id));
+        card.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectStage(stage.id);
+          }
+        });
+        // 誤操作防止のため、削除は2回押して確定します(1回目で文言が変わります)
+        const deleteButton = button("けす", "btn btn-ghost btn-small", () => {
+          if (deleteButton.dataset["confirming"] === "true") {
+            removeStage(stage.id);
+            return;
+          }
+          deleteButton.dataset["confirming"] = "true";
+          deleteButton.textContent = "ほんとうにけす?";
+          deleteButton.classList.add("btn-danger");
+        });
+        wrapper.append(card, deleteButton);
+        return wrapper;
+      }),
+    );
+  }
+
   /** 選択済みのカードを選択順に返します。 */
   function selectedCharacters(): Character[] {
     return selectedIds
@@ -277,7 +406,12 @@ export function renderHome(ctx: AppContext): HTMLElement {
       secondTeam.length === current.teamSize;
     const startButton = button("バトルスタート", "btn btn-primary btn-large", () => {
       if (ready) {
-        ctx.navigate({ name: "battle", firstTeam, secondTeam });
+        ctx.navigate({
+          name: "battle",
+          firstTeam,
+          secondTeam,
+          stage: selectedStage(),
+        });
       }
     });
     startButton.disabled = !ready;
@@ -315,7 +449,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
     const ready = fighters.length >= current.minFighters;
     const startButton = button("バトルスタート", "btn btn-primary btn-large", () => {
       if (ready) {
-        ctx.navigate({ name: "royale", fighters });
+        ctx.navigate({ name: "royale", fighters, stage: selectedStage() });
       }
     });
     startButton.disabled = !ready;
@@ -392,22 +526,30 @@ function button(
   return node;
 }
 
-/** 保存データ破損時のエラー表示です(Fail-Fast: 黙って捨てずに通知します)。 */
-function renderStorageError(error: unknown, ctx: AppContext): HTMLElement {
+/**
+ * 保存データ破損時のエラー表示です(Fail-Fast: 黙って捨てずに通知します)。
+ * ファイター・ステージの両方の保存データエラーで共用します。
+ */
+function renderStorageError(
+  error: unknown,
+  ctx: AppContext,
+  storageKey: string,
+  entityLabel: string,
+): HTMLElement {
   const message =
     error instanceof StorageError ? error.message : String(error);
   const resetButton = button(
     "保存データを初期化する",
     "btn btn-ghost btn-danger",
     () => {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(storageKey);
       ctx.navigate({ name: "home" });
     },
   );
   return el("div", { className: "error-box" }, [
     el("p", { text: `保存データを読み込めませんでした: ${message}` }),
     el("p", {
-      text: "初期化するとすべてのファイターが削除されます。",
+      text: `初期化するとすべての${entityLabel}が削除されます。`,
     }),
     resetButton,
   ]);
