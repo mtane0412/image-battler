@@ -508,21 +508,26 @@ body:has(.battle-screen) .app-logo {
 
 /* ---------- ステージ選択(ホーム) ---------- */
 
-/* ステージカードは行数構成(画像/名前/紹介文/とくしゅいべんと/とくせい)が
-   ファイターカードと異なるため、.roster-item のサブグリッド指定
-   (8行共有)を打ち消して通常の縦積みフローに戻します。
-   カードと「けす」ボタンの間隔は .roster-item の row-gap(8px)と揃えます */
+/* ステージカードは行数構成(画像/タイトル/名前/紹介文/とくしゅいべんと/
+   とくせい の6区画)がファイターカード(7区画)と異なるため、
+   .roster-item とは別に専用のサブグリッドを組みます。
+   カード6区画+「けす」ボタンの計7行を親グリッド(.stage-roster)と共有し、
+   同じ段に並ぶステージカードどうしで各欄の縦位置・カード全体の高さを
+   揃えます(デフォルトステージも同じ6区画構成のため揃います)。
+   仕組みはファイターカードの .roster-item と同じです */
 .stage-roster-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  grid-row: auto;
+  position: relative;
+  display: grid;
+  grid-row: span 7;
+  grid-template-rows: subgrid;
+  row-gap: 8px;
 }
 
 .stage-roster-item .card {
-  display: block;
-  grid-row: auto;
-  grid-template-rows: none;
+  display: grid;
+  grid-row: span 6;
+  grid-template-rows: subgrid;
+  row-gap: 0;
 }
 
 .stage-clickable {
