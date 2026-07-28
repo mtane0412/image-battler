@@ -20,6 +20,7 @@ import {
   loadBgmEnabled,
   saveBgmEnabled,
   selectRandomBgmKey,
+  type BgmPlayer,
 } from "./bgm";
 import bgmManifest from "./bgm-manifest.json";
 
@@ -104,6 +105,9 @@ describe("createBgmPlayer", () => {
     }
   }
 
+  /** 各テストで生成したプレイヤーです(afterEachで停止してリスナーの残留を防ぎます)。 */
+  const activePlayers: BgmPlayer[] = [];
+
   /** フェイクAudioと固定乱数を注入したプレイヤーを生成します。 */
   function makePlayer(random: () => number = () => 0) {
     const created: FakeAudio[] = [];
@@ -112,10 +116,14 @@ describe("createBgmPlayer", () => {
       created.push(audio);
       return audio as unknown as HTMLAudioElement;
     }, random);
+    activePlayers.push(player);
     return { player, created };
   }
 
   afterEach(() => {
+    // 再生中のプレイヤーを停止し、documentに登録したvisibilitychangeリスナーが
+    // 後続のテストに残らないようにします(停止済みプレイヤーへのstop()は無害です)
+    activePlayers.splice(0).forEach((player) => player.stop());
     // document.hidden を上書きしたテストの後始末(own propertyを消して既定に戻す)
     Reflect.deleteProperty(document, "hidden");
     vi.restoreAllMocks();
@@ -172,6 +180,7 @@ describe("createBgmPlayer", () => {
       audio.playResult = Promise.reject(new Error("自動再生がブロックされました"));
       return audio as unknown as HTMLAudioElement;
     });
+    activePlayers.push(player);
     expect(() => {
       player.play();
     }).not.toThrow();

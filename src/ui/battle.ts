@@ -513,8 +513,13 @@ export function renderBattle(
         await typeLine(`${loserSpeaker.name}「${defeatSpeech}」`, "speech");
       }
     }
-    // 勝利ファンファーレと重ならないよう、決着の演出前にBGMを止めます
-    bgmPlayer.stop();
+    // 勝利ファンファーレと重ならないよう、決着の演出前にBGMを止めます。
+    // ただしこの画面が既にDOMから外れている場合(ヘッダーのロゴなどで離脱した後も
+    // この再生ループだけが進行していた場合)は、プレイヤーが画面をまたいで共有の
+    // ため、進行中の別バトルのBGMを誤って止めないよう停止しません
+    if (screen.isConnected) {
+      bgmPlayer.stop();
+    }
     sePlayer.play(result.winner === null ? "draw" : "victory");
     showResult(winnerTeam);
     // 勝者代表の決めゼリフを締めの実況の前に挟みます(間に合わなければスキップ)
