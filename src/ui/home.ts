@@ -169,6 +169,10 @@ export function renderHome(ctx: AppContext): HTMLElement {
 
   // バトル形式(1vs1 / 2vs2 / バトルロイヤル)の切り替えボタンです
   const modeButtons = new Map<BattleMode, HTMLButtonElement>();
+  // 選択状況のヒント(「カードを2枚えらぶと〜」等)です。vs-panel(バトルスタートの
+  // バー)側に置くと文言の長さで vs-panel-action の幅が変わりバトルスタートの
+  // 中心がズレて見えるため、幅が一定なバトル形式選択の隣に表示します
+  const vsHint = el("p", { className: "vs-hint" });
   const modeToggle = el(
     "div",
     {
@@ -180,6 +184,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       makeModeButton("1v1"),
       makeModeButton("2v2"),
       makeModeButton("royale"),
+      vsHint,
     ],
   );
 
@@ -256,8 +261,8 @@ export function renderHome(ctx: AppContext): HTMLElement {
 
   /**
    * バトルスタートの隣に表示する、選択中ステージの小さいアイコンです。
-   * デフォルトステージ(未選択)のときも「—」のプレースホルダーを表示します。
-   * クリックするとステージ選択セクションまでスクロールします。
+   * デフォルトステージ(未選択)のときはアプリ背景と同じ配色のプレースホルダーを
+   * 表示します。クリックするとステージ選択セクションまでスクロールします。
    */
   function stageIndicator(): HTMLElement {
     const stage = selectedStage();
@@ -273,7 +278,6 @@ export function renderHome(ctx: AppContext): HTMLElement {
       stage === null
         ? el("span", {
             className: "stage-indicator stage-indicator-default",
-            text: "—",
           })
         : el("img", {
             className: "stage-indicator",
@@ -468,7 +472,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       }
     });
     startButton.disabled = !ready;
-    const hintText = ready
+    vsHint.textContent = ready
       ? "じゅんびかんりょう!"
       : mode === "1v1"
         ? "カードを2枚えらぶとバトルできます"
@@ -484,7 +488,6 @@ export function renderHome(ctx: AppContext): HTMLElement {
           startButton,
           bgmToggleButton(),
         ]),
-        el("p", { className: "vs-hint", text: hintText }),
       ]),
     );
   }
@@ -507,7 +510,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       }
     });
     startButton.disabled = !ready;
-    const hintText = ready
+    vsHint.textContent = ready
       ? "じゅんびかんりょう!"
       : `カードを${current.minFighters}〜${current.maxFighters}枚えらぶとバトルロイヤルできます(えらんだ順にエントリー)`;
     const slots: HTMLElement[] = [];
@@ -522,7 +525,6 @@ export function renderHome(ctx: AppContext): HTMLElement {
           startButton,
           bgmToggleButton(),
         ]),
-        el("p", { className: "vs-hint", text: hintText }),
       ]),
     );
   }

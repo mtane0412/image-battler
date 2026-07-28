@@ -563,6 +563,7 @@ body:has(.battle-screen) .app-logo {
 .mode-toggle {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 16px 0 14px;
 }
@@ -711,20 +712,27 @@ body:has(.battle-screen) .app-logo {
   object-fit: cover;
 }
 
+/* デフォルトステージ選択時のアイコンです。画像がないため、
+   アプリ全体の背景(body)と同じ配色・ドット柄を敷いて「無地の背景」を表します */
 .stage-indicator-default {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  background: var(--arena);
-  font-size: 18px;
+  display: block;
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -10%, #223066 0%, rgba(34, 48, 102, 0) 65%),
+    radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1.4px);
+  background-repeat: no-repeat, repeat;
+  background-size: auto, 10px 10px;
 }
 
+/* バトル形式選択(.mode-toggle)の右端に表示します。
+   vs-panel(バトルスタートのバー)側に置くと、文言の長さで
+   vs-panel-action の幅が変わりバトルスタートの中心がズレて見えるため、
+   常に幅が一定な mode-toggle 側に移しています */
 .vs-hint {
   font-family: var(--font-dot);
   font-size: 12px;
   color: var(--muted);
-  margin: 6px 0 0;
+  margin: 0 0 0 auto;
 }
 
 /* ---------- バトルロイヤルの編成パネル(ホーム) ---------- */
