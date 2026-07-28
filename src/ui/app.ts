@@ -7,7 +7,7 @@ import { el } from "./dom";
 import type { AppContext, Screen } from "./navigation";
 import { renderHome } from "./home";
 import { renderCreate } from "./create";
-import { renderBattle } from "./battle";
+import { renderBattle, renderRoyale } from "./battle";
 import { getSharedBgmPlayer } from "../audio/bgm";
 
 /** アプリを初期化し、ホーム画面を表示します。 */
@@ -66,8 +66,9 @@ export function initApp(root: HTMLElement): void {
   root.replaceChildren(header, main, footer);
 
   function render(screen: Screen): void {
-    // バトル画面以外ではBGMを止めます(再生の開始はバトル画面側で行います)
-    if (screen.name !== "battle") {
+    // バトル画面(チーム戦・ロイヤル)以外ではBGMを止めます
+    // (再生の開始はバトル画面側で行います)
+    if (screen.name !== "battle" && screen.name !== "royale") {
       getSharedBgmPlayer().stop();
     }
     switch (screen.name) {
@@ -81,6 +82,9 @@ export function initApp(root: HTMLElement): void {
         main.replaceChildren(
           renderBattle(ctx, screen.firstTeam, screen.secondTeam),
         );
+        break;
+      case "royale":
+        main.replaceChildren(renderRoyale(ctx, screen.fighters));
         break;
     }
     window.scrollTo(0, 0);

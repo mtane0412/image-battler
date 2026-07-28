@@ -1,7 +1,12 @@
 /**
- * @file バトル画面です(1v1・2v2共通)。バトルの展開は battle/engine.ts が
- * 決定論的に計算し、この画面はその結果を順番に再生します。
- * 実況セリフは Gemini Nano が生成します。
+ * @file バトル画面です(1v1・2v2のチーム戦とバトルロイヤルで共通)。
+ * バトルの展開は battle/engine.ts が決定論的に計算し、この画面はその結果を
+ * 順番に再生します。実況セリフは Gemini Nano が生成します。
+ *
+ * バトルロイヤル(完全FFA): チーム分け・VSマークなしで全参加者を1つの
+ * グリッドに並べます。枠色は全員共通(fighter-royale)、カットインの方向は
+ * エントリー順の偶奇で決めます(royale-view.ts)。再生ロジックは
+ * チーム戦と完全に共有します。
  *
  * フォールバック方針(明示): 実況・前口上(演出)の生成に失敗してもバトル本体は
  * JavaScript側の計算で完結しているため、失敗をログに明示した上で
@@ -34,12 +39,11 @@
 import type {
   AilmentType,
   BattleEvent,
-  BattleSide,
   Character,
   CombatantSnapshot,
 } from "../types";
 import { AILMENT_LABELS } from "../types";
-import { simulateTeamBattle } from "../battle/engine";
+import { simulateRoyale, simulateTeamBattle } from "../battle/engine";
 import { collectKnockedOutIds } from "../battle/analysis";
 import {
   createNarrationSession,
@@ -52,12 +56,22 @@ import {
   buildIntroPrompt,
   buildNarrationPrompt,
   buildResultPrompt,
+  buildRoyaleIntroPrompt,
+  buildRoyaleResultPrompt,
+  buildRoyaleStoryPrompt,
   buildSpecialMoveSpeechPrompt,
   buildStoryPrompt,
   buildVictorySpeechPrompt,
+  formatOpponentsLabel,
   type NarrationParams,
 } from "../ai/prompts";
-import { sampleStoryIngredients } from "../ai/story";
+import { sampleStoryIngredients, type StoryIngredients } from "../ai/story";
+import {
+  cutinSideFor,
+  pickTimeoutDefeatSpeaker,
+  royaleOutcome,
+  type CutinSide,
+} from "./royale-view";
 import { describeEvent } from "./format";
 import { fighterInfoPanel } from "./fighter-info";
 import { bgmToggleButton } from "./bgm-toggle";
@@ -83,8 +97,12 @@ const CUTIN_DURATION_MS = 1600;
 /** バトル中の1ファイターの表示と設定をまとめた参加者情報です。 */
 interface BattleParticipant {
   character: Character;
-  /** 所属サイド(1Pチーム = p1、2Pチーム = p2) */
-  side: "p1" | "p2";
+  /** ファイター枠の見た目クラス(チーム戦: fighter-p1 / fighter-p2、ロイヤル: fighter-royale) */
+  frameClass: string;
+  /** カットインのスライド方向(チーム戦: 1P=左 / 2P=右、ロイヤル: エントリー順の偶奇) */
+  cutinSide: CutinSide;
+  /** 断末魔プロンプトに使う相手名のラベル(チーム戦: 敵チーム名、ロイヤル: 他の参加者) */
+  opponentsLabel: string;
   block: FighterBlock;
   specialSeKey: SeKey;
 }
@@ -123,12 +141,30 @@ function victoryRepresentative(
   return survivor ?? teamHead(team);
 }
 
-/** バトル画面を描画し、再生を開始します。 */
+/** バトル画面の形式ごとの設定です(チーム戦 or バトルロイヤル)。 */
+type BattleSetup =
+  | { kind: "teams"; firstTeam: Character[]; secondTeam: Character[] }
+  | { kind: "royale"; fighters: Character[] };
+
+/** チーム戦(1v1・2v2)のバトル画面を描画し、再生を開始します。 */
 export function renderBattle(
   ctx: AppContext,
   firstTeam: Character[],
   secondTeam: Character[],
 ): HTMLElement {
+  return renderBattleScreen(ctx, { kind: "teams", firstTeam, secondTeam });
+}
+
+/** バトルロイヤル(完全FFA)のバトル画面を描画し、再生を開始します。 */
+export function renderRoyale(
+  ctx: AppContext,
+  fighters: Character[],
+): HTMLElement {
+  return renderBattleScreen(ctx, { kind: "royale", fighters });
+}
+
+/** バトル画面の共通実装です(再生ロジックはチーム戦・ロイヤルで完全に共有します)。 */
+function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
   const screen = el("section", { className: "screen battle-screen" });
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -151,20 +187,89 @@ export function renderBattle(
   }
 
   // --- 参加者(ファイターブロック・必殺技効果音はキャラクターごとに一度だけ決定) ---
-  function makeParticipants(
+  function makeParticipant(
+    character: Character,
+    display: Pick<
+      BattleParticipant,
+      "frameClass" | "cutinSide" | "opponentsLabel"
+    >,
+  ): BattleParticipant {
+    return {
+      character,
+      ...display,
+      block: fighterBlock(character, display.frameClass),
+      specialSeKey: selectSpecialSeKey(character.specialMove),
+    };
+  }
+
+  /** チーム戦の1チーム分の参加者を作ります(1P=左からのカットイン、2P=右から)。 */
+  function makeTeamParticipants(
     team: readonly Character[],
     side: "p1" | "p2",
+    enemyTeam: readonly Character[],
   ): BattleParticipant[] {
-    return team.map((character) => ({
-      character,
-      side,
-      block: fighterBlock(character, side),
-      specialSeKey: selectSpecialSeKey(character.specialMove),
-    }));
+    return team.map((character) =>
+      makeParticipant(character, {
+        frameClass: `fighter-${side}`,
+        cutinSide: side === "p1" ? "cutin-left" : "cutin-right",
+        opponentsLabel: joinNames(enemyTeam, "と"),
+      }),
+    );
   }
-  const firstParticipants = makeParticipants(firstTeam, "p1");
-  const secondParticipants = makeParticipants(secondTeam, "p2");
-  const participants = [...firstParticipants, ...secondParticipants];
+
+  // --- 参加者一覧とステージ(形式ごとにレイアウトが異なります) ---
+  let participants: BattleParticipant[];
+  let stage: HTMLElement;
+  if (setup.kind === "teams") {
+    const firstParticipants = makeTeamParticipants(
+      setup.firstTeam,
+      "p1",
+      setup.secondTeam,
+    );
+    const secondParticipants = makeTeamParticipants(
+      setup.secondTeam,
+      "p2",
+      setup.firstTeam,
+    );
+    participants = [...firstParticipants, ...secondParticipants];
+    const is2v2 = setup.firstTeam.length > 1 || setup.secondTeam.length > 1;
+    stage = el(
+      "div",
+      { className: `stage${is2v2 ? " stage-2v2" : ""}` },
+      [
+        el(
+          "div",
+          { className: "stage-team stage-team-p1" },
+          firstParticipants.map((participant) => participant.block.root),
+        ),
+        el("span", { className: "vs-mark stage-vs", text: "VS" }),
+        el(
+          "div",
+          { className: "stage-team stage-team-p2" },
+          secondParticipants.map((participant) => participant.block.root),
+        ),
+      ],
+    );
+  } else {
+    // ロイヤルはチーム分け・VSマークなしで、全参加者を1つの折り返しグリッドに並べます
+    const fighters = setup.fighters;
+    participants = fighters.map((character, index) =>
+      makeParticipant(character, {
+        frameClass: "fighter-royale",
+        cutinSide: cutinSideFor(index),
+        opponentsLabel: formatOpponentsLabel(
+          fighters
+            .filter((_, otherIndex) => otherIndex !== index)
+            .map((other) => other.name),
+        ),
+      }),
+    );
+    stage = el(
+      "div",
+      { className: "stage stage-royale" },
+      participants.map((participant) => participant.block.root),
+    );
+  }
   const byId: Record<string, BattleParticipant> = {};
   for (const participant of participants) {
     byId[participant.character.id] = participant;
@@ -178,26 +283,6 @@ export function renderBattle(
     }
     return participant;
   }
-
-  // --- ステージ(チームごとのファイター列とHP/MPバー) ---
-  const is2v2 = firstTeam.length > 1 || secondTeam.length > 1;
-  const stage = el(
-    "div",
-    { className: `stage${is2v2 ? " stage-2v2" : ""}` },
-    [
-      el(
-        "div",
-        { className: "stage-team stage-team-p1" },
-        firstParticipants.map((participant) => participant.block.root),
-      ),
-      el("span", { className: "vs-mark stage-vs", text: "VS" }),
-      el(
-        "div",
-        { className: "stage-team stage-team-p2" },
-        secondParticipants.map((participant) => participant.block.root),
-      ),
-    ],
-  );
 
   // --- メッセージウィンドウ(レトロRPG風・シグネチャ要素) ---
   const logWindow = el("div", {
@@ -223,7 +308,15 @@ export function renderBattle(
   });
   rematchButton.addEventListener("click", () => {
     aborted = true;
-    ctx.navigate({ name: "battle", firstTeam, secondTeam });
+    ctx.navigate(
+      setup.kind === "teams"
+        ? {
+            name: "battle",
+            firstTeam: setup.firstTeam,
+            secondTeam: setup.secondTeam,
+          }
+        : { name: "royale", fighters: setup.fighters },
+    );
   });
 
   // バトル中でもBGMを切り替えられるようにします(ONで即再生・OFFで即停止)
@@ -251,15 +344,13 @@ export function renderBattle(
 
   /** バトル全体を再生します。 */
   async function playBattle(): Promise<void> {
-    const result = simulateTeamBattle(firstTeam, secondTeam, Math.random);
+    const { events, winners, losers } = runSimulation();
     // 前口上とセリフで共用するストーリー材料(舞台・因縁)を抽選します。
     // 材料が毎試合変わることが、決定論的なモデルでの変化の源です
     const storyIngredients = sampleStoryIngredients();
     // 前口上(ストーリー)の生成は待ち時間を稼ぐため最初に開始し、
     // 実況セッションの準備と並行させます
-    const storyPromise = generateBattleStory(
-      buildStoryPrompt(firstTeam, secondTeam, storyIngredients),
-    );
+    const storyPromise = generateBattleStory(storyPromptFor(storyIngredients));
     // 表示前(セッション準備中など)に生成が失敗しても未処理エラーに
     // ならないよう先に握っておきます(失敗の表示は取得側の try で行います)
     void storyPromise.catch(() => undefined);
@@ -267,7 +358,7 @@ export function renderBattle(
     // (バトル展開は事前確定しているため、再生前にまとめて仕込めます)
     const speechPromises = new Map<string, Promise<string>>();
     for (const participant of participants) {
-      const usesSpecial = result.events.some(
+      const usesSpecial = events.some(
         (event) =>
           isSpecialMoveEvent(event) &&
           event.actorId === participant.character.id,
@@ -288,17 +379,16 @@ export function renderBattle(
       speechPromises.set(participant.character.id, promise);
     }
     // 倒れる予定のメンバーの断末魔を先行生成します(倒れた瞬間に表示するため)
-    const knockedOutIds = collectKnockedOutIds(result.events);
+    const knockedOutIds = collectKnockedOutIds(events);
     const defeatSpeechPromises = new Map<string, Promise<string>>();
     for (const participant of participants) {
       if (!knockedOutIds.has(participant.character.id)) {
         continue;
       }
-      const enemyTeam = participant.side === "p1" ? secondTeam : firstTeam;
       const promise = generateCharacterSpeech(
         buildDefeatSpeechPrompt(
           participant.character,
-          joinNames(enemyTeam, "と"),
+          participant.opponentsLabel,
           storyIngredients,
         ),
       );
@@ -307,29 +397,28 @@ export function renderBattle(
     }
     // 決着後のセリフ(勝者の決めゼリフ)も先行生成します(引き分けの場合はなし)。
     // 断末魔は倒れた瞬間に表示するため、締めの断末魔は誰も倒れずに
-    // 判定負けした場合だけ敗北チームの先頭メンバーが語ります
-    const winnerTeam = teamOfSide(result.winner);
-    const loserTeam = teamOfSide(opposite(result.winner));
+    // 判定負けした場合だけ敗者側の先頭メンバーが語ります
     let winnerSpeaker: Character | undefined;
     let loserSpeaker: Character | undefined;
     let timeoutDefeatSpeechPromise: Promise<string> | undefined;
     let victorySpeechPromise: Promise<string> | undefined;
-    if (winnerTeam !== null && loserTeam !== null) {
-      winnerSpeaker = victoryRepresentative(result.events, winnerTeam);
+    if (winners !== null && losers !== null) {
+      winnerSpeaker = victoryRepresentative(events, winners);
       victorySpeechPromise = generateCharacterSpeech(
         buildVictorySpeechPrompt(
           winnerSpeaker,
-          joinNames(loserTeam, "と"),
+          formatOpponentsLabel(losers.map((loser) => loser.name)),
           storyIngredients,
         ),
       );
       void victorySpeechPromise.catch(() => undefined);
-      if (loserTeam.every((member) => !knockedOutIds.has(member.id))) {
-        loserSpeaker = teamHead(loserTeam);
+      const timeoutSpeaker = pickTimeoutDefeatSpeaker(losers, knockedOutIds);
+      if (timeoutSpeaker !== null) {
+        loserSpeaker = timeoutSpeaker;
         timeoutDefeatSpeechPromise = generateCharacterSpeech(
           buildDefeatSpeechPrompt(
             loserSpeaker,
-            joinNames(winnerTeam, "と"),
+            formatOpponentsLabel(winners.map((winner) => winner.name)),
             storyIngredients,
           ),
         );
@@ -387,14 +476,11 @@ export function renderBattle(
       return;
     }
     sePlayer.play("start");
-    await typeLine(
-      `${joinNames(firstTeam, "&")} 対 ${joinNames(secondTeam, "&")}! バトルスタート!`,
-      "system",
-    );
+    await typeLine(startLogLine(), "system");
     if (narrator !== null) {
       try {
         await typeLine(
-          await narrateOnce(narrator, buildIntroPrompt(firstTeam, secondTeam)),
+          await narrateOnce(narrator, introPrompt()),
           "narration",
         );
       } catch (error) {
@@ -409,7 +495,7 @@ export function renderBattle(
     // 断末魔を表示済みのメンバーのIDです(同じメンバーに二度表示しないため)
     const mournedIds = new Set<string>();
 
-    for (const event of result.events) {
+    for (const event of events) {
       if (aborted) {
         return;
       }
@@ -520,8 +606,8 @@ export function renderBattle(
     if (screen.isConnected) {
       bgmPlayer.stop();
     }
-    sePlayer.play(result.winner === null ? "draw" : "victory");
-    showResult(winnerTeam);
+    sePlayer.play(winners === null ? "draw" : "victory");
+    showResult(winners);
     // 勝者代表の決めゼリフを締めの実況の前に挟みます(間に合わなければスキップ)
     if (winnerSpeaker !== undefined) {
       const victorySpeech = await waitForSpeech(victorySpeechPromise);
@@ -535,18 +621,7 @@ export function renderBattle(
       }
     }
     if (narrator !== null) {
-      const prompt =
-        winnerTeam !== null && loserTeam !== null
-          ? buildResultPrompt(
-              joinNames(winnerTeam, "と"),
-              joinNames(loserTeam, "と"),
-              false,
-            )
-          : buildResultPrompt(
-              joinNames(firstTeam, "と"),
-              joinNames(secondTeam, "と"),
-              true,
-            );
+      const prompt = resultPromptFor(winners, losers);
       try {
         await typeLine(await narrateOnce(narrator, prompt), "narration");
       } catch (error) {
@@ -560,39 +635,104 @@ export function renderBattle(
     rematchButton.hidden = false;
   }
 
-  /** 勝敗サイドに対応するチームを返します(null は引き分け)。 */
-  function teamOfSide(side: BattleSide | null): Character[] | null {
-    if (side === null) {
-      return null;
+  /**
+   * 形式に応じてバトルを実行し、勝敗を「勝者一覧 / 敗者一覧」へ正規化します
+   * (引き分けの場合はどちらも null)。ロイヤルの勝者は常に1人の配列です。
+   */
+  function runSimulation(): {
+    events: BattleEvent[];
+    winners: Character[] | null;
+    losers: Character[] | null;
+  } {
+    if (setup.kind === "teams") {
+      const result = simulateTeamBattle(
+        setup.firstTeam,
+        setup.secondTeam,
+        Math.random,
+      );
+      if (result.winner === null) {
+        return { events: result.events, winners: null, losers: null };
+      }
+      const [winners, losers] =
+        result.winner === "first"
+          ? [setup.firstTeam, setup.secondTeam]
+          : [setup.secondTeam, setup.firstTeam];
+      return { events: result.events, winners, losers };
     }
-    return side === "first" ? firstTeam : secondTeam;
+    const result = simulateRoyale(setup.fighters, Math.random);
+    const outcome = royaleOutcome(setup.fighters, result.winnerId);
+    if (outcome === null) {
+      return { events: result.events, winners: null, losers: null };
+    }
+    return {
+      events: result.events,
+      winners: outcome.winners,
+      losers: outcome.losers,
+    };
   }
 
-  /** 勝敗サイドの反対側を返します(null は引き分けのまま)。 */
-  function opposite(side: BattleSide | null): BattleSide | null {
-    if (side === null) {
-      return null;
+  /** 形式に応じた前口上(ストーリー)プロンプトを返します。 */
+  function storyPromptFor(ingredients: StoryIngredients): string {
+    return setup.kind === "teams"
+      ? buildStoryPrompt(setup.firstTeam, setup.secondTeam, ingredients)
+      : buildRoyaleStoryPrompt(setup.fighters, ingredients);
+  }
+
+  /** 形式に応じた開始の煽り実況プロンプトを返します。 */
+  function introPrompt(): string {
+    return setup.kind === "teams"
+      ? buildIntroPrompt(setup.firstTeam, setup.secondTeam)
+      : buildRoyaleIntroPrompt(setup.fighters);
+  }
+
+  /** 形式に応じたバトル開始のメカニカルログ行を返します。 */
+  function startLogLine(): string {
+    return setup.kind === "teams"
+      ? `${joinNames(setup.firstTeam, "&")} 対 ${joinNames(setup.secondTeam, "&")}! バトルスタート!`
+      : `${joinNames(setup.fighters, "、")} による${setup.fighters.length}人のバトルロイヤル! バトルスタート!`;
+  }
+
+  /** 形式に応じた締めの実況プロンプトを返します。 */
+  function resultPromptFor(
+    winners: Character[] | null,
+    losers: Character[] | null,
+  ): string {
+    if (setup.kind === "royale") {
+      return buildRoyaleResultPrompt(
+        winners === null ? null : teamHead(winners).name,
+        setup.fighters.length,
+      );
     }
-    return side === "first" ? "second" : "first";
+    return winners !== null && losers !== null
+      ? buildResultPrompt(
+          joinNames(winners, "と"),
+          joinNames(losers, "と"),
+          false,
+        )
+      : buildResultPrompt(
+          joinNames(setup.firstTeam, "と"),
+          joinNames(setup.secondTeam, "と"),
+          true,
+        );
   }
 
   /** 勝敗バナーを表示します。 */
-  function showResult(winnerTeam: Character[] | null): void {
-    if (winnerTeam === null) {
+  function showResult(winners: Character[] | null): void {
+    if (winners === null) {
       resultBanner.append(
         el("span", { className: "result-word", text: "DRAW" }),
         el("span", { className: "result-name", text: "りょうしゃ ゆずらず!" }),
       );
       return;
     }
-    for (const member of winnerTeam) {
+    for (const member of winners) {
       participantOf(member).block.root.classList.add("fighter-winner");
     }
-    const head = teamHead(winnerTeam);
+    const head = teamHead(winners);
     const label =
-      winnerTeam.length === 1
+      winners.length === 1
         ? `「${head.title}」${head.name}`
-        : joinNames(winnerTeam, "&");
+        : joinNames(winners, "&");
     resultBanner.append(
       el("span", { className: "result-word", text: "WINNER" }),
       el("span", { className: "result-name", text: label }),
@@ -646,8 +786,7 @@ export function renderBattle(
     if (reducedMotion || document.hidden) {
       return;
     }
-    const side = participant.side === "p1" ? "cutin-left" : "cutin-right";
-    const classNames = ["cutin", side];
+    const classNames = ["cutin", participant.cutinSide];
     if (extraClassName !== undefined) {
       classNames.push(extraClassName);
     }
@@ -876,8 +1015,8 @@ interface FighterBlock {
   applySnapshot(snapshot: CombatantSnapshot): void;
 }
 
-/** ファイターブロックを生成します。 */
-function fighterBlock(character: Character, side: "p1" | "p2"): FighterBlock {
+/** ファイターブロックを生成します。frameClass は枠色などの見た目クラスです。 */
+function fighterBlock(character: Character, frameClass: string): FighterBlock {
   const hpFill = el("span", { className: "hp-fill hp-high" });
   const hpText = el("span", {
     className: "hp-text",
@@ -896,7 +1035,7 @@ function fighterBlock(character: Character, side: "p1" | "p2"): FighterBlock {
     className: "ailment-badge",
     attrs: { hidden: "" },
   });
-  const root = el("div", { className: `fighter fighter-${side}` }, [
+  const root = el("div", { className: `fighter ${frameClass}` }, [
     el("div", { className: "fighter-portrait" }, [
       el("img", {
         attrs: { src: character.imageDataUrl, alt: `${character.name}の画像` },
