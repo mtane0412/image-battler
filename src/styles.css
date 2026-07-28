@@ -328,6 +328,12 @@ body:has(.battle-screen) .app-logo {
   outline-offset: 2px;
 }
 
+/* バトルロイヤルの選択はチーム色の代わりに金色で示します */
+.selected-royale .card {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
 .slot-badge {
   position: absolute;
   top: -10px;
@@ -346,6 +352,11 @@ body:has(.battle-screen) .app-logo {
 
 .slot-badge-p2 {
   background: var(--p2);
+}
+
+/* バトルロイヤルのバッジはエントリー番号(No.1〜)を金色で表示します */
+.slot-badge-royale {
+  background: var(--gold);
 }
 
 .card-portrait {
@@ -633,6 +644,26 @@ body:has(.battle-screen) .app-logo {
   margin: 6px 0 0;
 }
 
+/* ---------- バトルロイヤルの編成パネル(ホーム) ---------- */
+
+/* ロイヤルにはVSマークがないため、エントリー一覧+アクションの2列にします */
+.vs-panel-royale {
+  grid-template-columns: 1fr auto;
+}
+
+/* エントリーのスロット(No.1〜)は横並びで、入りきらなければ折り返します */
+.vs-royale-entries {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  min-width: 0;
+}
+
+.vs-slot-royale img {
+  border: 3px solid var(--gold);
+}
+
 /* ---------- キャラ作成 ---------- */
 
 .create-form {
@@ -784,6 +815,33 @@ body:has(.battle-screen) .app-logo {
 /* 2vs2は4体を横に並べるため、1体あたりの幅を一段抑えます */
 .stage-2v2 .stage-team {
   grid-auto-columns: min(160px, 21vw);
+}
+
+/* ---------- バトルロイヤルのステージ ---------- */
+
+/* ロイヤルはチーム分け・VSマークなしで全員を1つの折り返しグリッドに並べます。
+   subgrid の行共有は折り返しに対応できないため使わず、auto-fit + minmax で
+   3〜10人・全ビューポートにメディアクエリなしで追従します(空トラックは
+   auto-fit が畳むため justify-content: center で常に中央揃えになります) */
+.stage-royale {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 160px));
+  grid-template-rows: none;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* 既定の .fighter は親の9行subgrid(grid-row: 1 / -1)を前提にしているため、
+   折り返しグリッドでは自前の9区画に切り替えます(上書きしないと配置が崩れます) */
+.stage-royale .fighter {
+  grid-row: auto;
+  grid-template-rows: repeat(9, auto);
+  align-content: start;
+}
+
+/* ロイヤルの枠色はチーム色(青/赤)の代わりに全員共通の金色にします */
+.fighter-royale .fighter-portrait {
+  border: 4px solid var(--gold);
+  box-shadow: 0 0 26px rgba(255, 210, 74, 0.3);
 }
 
 /* 戦闘不能のメンバーはグレーアウトして戦況を読みやすくします(チーム戦向け) */
@@ -1352,6 +1410,12 @@ body:has(.battle-screen) .app-logo {
 
   .vs-panel-action {
     grid-column: 1 / -1;
+  }
+
+  /* ロイヤルの編成パネルは1列に積みます(上記の .vs-panel の3列指定より後に
+     書くことで、同じ詳細度でもロイヤル側が勝つようにしています) */
+  .vs-panel-royale {
+    grid-template-columns: 1fr;
   }
 
   .stage-vs {
