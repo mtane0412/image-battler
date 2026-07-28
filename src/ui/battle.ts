@@ -18,11 +18,13 @@
  * 上限時間(SPEECH_WAIT_LIMIT_MS)までに間に合わなければセリフなしで進行します
  * (テンポを守るための明示的な仕様です)。
  *
- * 決着セリフ: 勝敗も再生前に確定しているため、敗者の断末魔と勝者の決めゼリフも
- * 再生開始時に先行生成します。チーム戦では敗北チームで最後に倒れたメンバーが
- * 断末魔を、勝利チームで生き残った先頭メンバーが決めゼリフを担当します。
- * 決着時は「断末魔 → 勝利ファンファーレ → 勝者のセリフ → 締めの実況」の順で
- * 表示します(引き分け時はどちらもなし)。
+ * 断末魔と決着セリフ: 勝敗も再生前に確定しているため、倒れる予定のメンバーの
+ * 断末魔と勝者の決めゼリフを再生開始時に先行生成します。断末魔は倒れた瞬間
+ * (KOイベントの直後)にカットイン付きで表示します(1v1では従来どおり決着の
+ * 一撃の直後です)。誰も倒れずに判定負けした場合のみ、締めの場面で敗北チームの
+ * 先頭メンバーが断末魔を語ります。勝者の決めゼリフは勝利チームで生き残った
+ * 先頭メンバーが担当し、決着時は「勝利ファンファーレ → 勝者のセリフ →
+ * 締めの実況」の順で表示します(引き分け時はどちらもなし)。
  *
  * 実況の対象: 行動イベント(通常攻撃・ミス・必殺技・反撃)のみ実況します。
  * 毎ターン発生しうる状態異常の経過(スリップダメージ・行動不能など)や
@@ -38,6 +40,7 @@ import type {
 } from "../types";
 import { AILMENT_LABELS } from "../types";
 import { simulateTeamBattle } from "../battle/engine";
+import { collectKnockedOutIds } from "../battle/analysis";
 import {
   createNarrationSession,
   generateBattleStory,
@@ -96,28 +99,6 @@ function teamHead(team: readonly Character[]): Character {
     throw new Error("チームにキャラクターがいません");
   }
   return head;
-}
-
-/**
- * 敗北チームの断末魔を語る代表(最後に倒れたメンバー)を返します。
- * 誰も倒れていない場合(ラウンド上限による判定負け)は先頭メンバーを返します
- * (演出用の代表選びであり、バトル進行には影響しない明示的なフォールバックです)。
- */
-function defeatRepresentative(
-  events: readonly BattleEvent[],
-  team: readonly Character[],
-): Character {
-  const standing = new Set(team.map((character) => character.id));
-  let lastFallen: Character | undefined;
-  for (const event of events) {
-    for (const member of team) {
-      if (standing.has(member.id) && event.after[member.id]?.hp === 0) {
-        standing.delete(member.id);
-        lastFallen = member;
-      }
-    }
-  }
-  return lastFallen ?? teamHead(team);
 }
 
 /**
@@ -284,24 +265,35 @@ export function renderBattle(
       void promise.catch(() => undefined);
       speechPromises.set(participant.character.id, promise);
     }
-    // 決着後のセリフ(敗者の断末魔・勝者の決めゼリフ)も先行生成します
-    // (引き分けの場合はどちらも生成しません)
+    // 倒れる予定のメンバーの断末魔を先行生成します(倒れた瞬間に表示するため)
+    const knockedOutIds = collectKnockedOutIds(result.events);
+    const defeatSpeechPromises = new Map<string, Promise<string>>();
+    for (const participant of participants) {
+      if (!knockedOutIds.has(participant.character.id)) {
+        continue;
+      }
+      const enemyTeam = participant.side === "p1" ? secondTeam : firstTeam;
+      const promise = generateCharacterSpeech(
+        buildDefeatSpeechPrompt(
+          participant.character,
+          joinNames(enemyTeam, "と"),
+          storyIngredients,
+        ),
+      );
+      void promise.catch(() => undefined);
+      defeatSpeechPromises.set(participant.character.id, promise);
+    }
+    // 決着後のセリフ(勝者の決めゼリフ)も先行生成します(引き分けの場合はなし)。
+    // 断末魔は倒れた瞬間に表示するため、締めの断末魔は誰も倒れずに
+    // 判定負けした場合だけ敗北チームの先頭メンバーが語ります
     const winnerTeam = teamOfSide(result.winner);
     const loserTeam = teamOfSide(opposite(result.winner));
     let winnerSpeaker: Character | undefined;
     let loserSpeaker: Character | undefined;
-    let defeatSpeechPromise: Promise<string> | undefined;
+    let timeoutDefeatSpeechPromise: Promise<string> | undefined;
     let victorySpeechPromise: Promise<string> | undefined;
     if (winnerTeam !== null && loserTeam !== null) {
       winnerSpeaker = victoryRepresentative(result.events, winnerTeam);
-      loserSpeaker = defeatRepresentative(result.events, loserTeam);
-      defeatSpeechPromise = generateCharacterSpeech(
-        buildDefeatSpeechPrompt(
-          loserSpeaker,
-          joinNames(winnerTeam, "と"),
-          storyIngredients,
-        ),
-      );
       victorySpeechPromise = generateCharacterSpeech(
         buildVictorySpeechPrompt(
           winnerSpeaker,
@@ -309,8 +301,18 @@ export function renderBattle(
           storyIngredients,
         ),
       );
-      void defeatSpeechPromise.catch(() => undefined);
       void victorySpeechPromise.catch(() => undefined);
+      if (loserTeam.every((member) => !knockedOutIds.has(member.id))) {
+        loserSpeaker = teamHead(loserTeam);
+        timeoutDefeatSpeechPromise = generateCharacterSpeech(
+          buildDefeatSpeechPrompt(
+            loserSpeaker,
+            joinNames(winnerTeam, "と"),
+            storyIngredients,
+          ),
+        );
+        void timeoutDefeatSpeechPromise.catch(() => undefined);
+      }
     }
     // メカニカルログ用のID→表示名の対応表です
     const names: Record<string, string> = {};
@@ -382,6 +384,9 @@ export function renderBattle(
       }
     }
 
+    // 断末魔を表示済みのメンバーのIDです(同じメンバーに二度表示しないため)
+    const mournedIds = new Set<string>();
+
     for (const event of result.events) {
       if (aborted) {
         return;
@@ -439,6 +444,33 @@ export function renderBattle(
           narrator = null;
         }
       }
+
+      // 倒れたメンバーの断末魔を倒れた瞬間に挟みます(間に合わなければスキップ)
+      for (const participant of participants) {
+        const afterSnapshot = event.after[participant.character.id];
+        if (
+          afterSnapshot === undefined ||
+          afterSnapshot.hp > 0 ||
+          mournedIds.has(participant.character.id)
+        ) {
+          continue;
+        }
+        mournedIds.add(participant.character.id);
+        const defeatSpeech = await waitForSpeech(
+          defeatSpeechPromises.get(participant.character.id),
+        );
+        if (aborted) {
+          return;
+        }
+        if (defeatSpeech !== null) {
+          await showCutin(participant, defeatSpeech, "断末魔", "cutin-ko");
+          await typeLine(
+            `${participant.character.name}「${defeatSpeech}」`,
+            "speech",
+          );
+        }
+      }
+
       await pacedWait(reducedMotion ? 80 : EVENT_INTERVAL_MS);
     }
 
@@ -446,9 +478,10 @@ export function renderBattle(
       return;
     }
 
-    // 敗者代表の断末魔を勝利ファンファーレの前に挟みます(間に合わなければスキップ)
+    // 誰も倒れずに判定負けした場合のみ、敗者代表の断末魔を
+    // 勝利ファンファーレの前に挟みます(間に合わなければスキップ)
     if (loserSpeaker !== undefined) {
-      const defeatSpeech = await waitForSpeech(defeatSpeechPromise);
+      const defeatSpeech = await waitForSpeech(timeoutDefeatSpeechPromise);
       if (aborted) {
         return;
       }
