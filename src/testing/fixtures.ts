@@ -2,7 +2,14 @@
  * @file テスト用のフィクスチャ(キャラクター生成ヘルパー・乱数列ヘルパー)です。
  * プロダクションコードからは import しないでください。
  */
-import type { Character, PassiveSkill, SpecialMove } from "../types";
+import type {
+  BattleStage,
+  Character,
+  PassiveSkill,
+  SpecialMove,
+  StageEvent,
+  StageTrait,
+} from "../types";
 import type { Rng } from "../battle/engine";
 
 /**
@@ -71,4 +78,50 @@ export function makeCharacter(overrides: Partial<Character> = {}): Character {
 export function sequenceRng(values: number[], fallback = 0.5): Rng {
   const queue = [...values];
   return () => queue.shift() ?? fallback;
+}
+
+/**
+ * テスト用のステージ特性を生成します。
+ * id を指定して効果を選び、名前は省略時に「テスト特性(id)」になります。
+ */
+export function makeStageTrait(
+  id: StageTrait["id"],
+  overrides: Partial<Omit<StageTrait, "id">> = {},
+): StageTrait {
+  return {
+    id,
+    name: `テスト特性(${id})`,
+    description: "テスト用のステージ特性です",
+    ...overrides,
+  };
+}
+
+/**
+ * テスト用のステージ特殊イベントを生成します。
+ * id を指定して効果を選び、名前は省略時に「テストイベント(id)」になります。
+ */
+export function makeStageEvent(
+  id: StageEvent["id"],
+  overrides: Partial<Omit<StageEvent, "id">> = {},
+): StageEvent {
+  return {
+    id,
+    name: `テストイベント(${id})`,
+    description: "テスト用のステージ特殊イベントです",
+    ...overrides,
+  };
+}
+
+/**
+ * テスト用のバトルステージ(エンジンが受け取る最小形)を生成します。
+ * 既定では特性 blazing・イベント meteor です。
+ */
+export function makeBattleStage(
+  overrides: Partial<{ trait: StageTrait; event: StageEvent }> = {},
+): BattleStage {
+  return {
+    trait: makeStageTrait("blazing"),
+    event: makeStageEvent("meteor"),
+    ...overrides,
+  };
 }

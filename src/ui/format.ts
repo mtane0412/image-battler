@@ -54,6 +54,22 @@ export function describeEvent(
       return `${actor}は あいての せいきを すいとった! HPが ${event.healed} かいふく!`;
     case "regenerate":
       return `${actor}の きずが しぜんに ふさがる! HPが ${event.healed} かいふく!`;
+    case "stage-damage":
+      return event.announce
+        ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}に ${event.damage}の ダメージ!`
+        : `${actor}に ${event.damage}の ダメージ!`;
+    case "stage-heal":
+      return event.announce
+        ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}の HPが ${event.healed} かいふくした!`
+        : `${actor}の HPが ${event.healed} かいふくした!`;
+    case "stage-mp":
+      return event.announce
+        ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}の MPが ${event.restored} かいふくした!`
+        : `${actor}の MPが ${event.restored} かいふくした!`;
+    case "stage-ailment":
+      return event.announce
+        ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}は ${AILMENT_LABELS[event.ailment]}じょうたいに なった!`
+        : `${actor}は ${AILMENT_LABELS[event.ailment]}じょうたいに なった!`;
   }
 }
 

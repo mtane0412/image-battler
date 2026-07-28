@@ -132,6 +132,120 @@ export interface PassiveSkill {
 }
 
 /**
+ * ステージ特性の種類です。効果はバトルエンジンに実装済みで、
+ * AI は画像に合うものを選んで固有名を付けます。全員に平等にかかる「場の効果」です。
+ * - blazing: 全員の攻撃力が上がる
+ * - fortified: 全員の被ダメージが下がる
+ * - fortunate: 全員のクリティカル率が上がる
+ * - mana-rich: 全員の毎ターンMP回復量が上がる
+ */
+export type StageTraitId = "blazing" | "fortified" | "fortunate" | "mana-rich";
+
+/** ステージ特性の種類一覧です(検証・表示で使用します)。 */
+export const STAGE_TRAIT_IDS = [
+  "blazing",
+  "fortified",
+  "fortunate",
+  "mana-rich",
+] as const satisfies readonly StageTraitId[];
+
+/**
+ * ステージ特性の効果の短い要約です。
+ * ステージ生成プロンプトの候補提示と、効果の説明表示に共用します。
+ */
+export const STAGE_TRAIT_SUMMARIES = {
+  blazing: "全員の攻撃力が上がる",
+  fortified: "全員の被ダメージが下がる",
+  fortunate: "全員の会心率が上がる",
+  "mana-rich": "全員のMP回復が速い",
+} as const satisfies Record<StageTraitId, string>;
+
+/** ステージ特性です。効果(id)はエンジン実装済み、名前はAIが付けます。 */
+export interface StageTrait {
+  /** 効果の種類(エンジンが解釈するID) */
+  id: StageTraitId;
+  /** AIが付けた固有名(例:「灼熱の闘技場」) */
+  name: string;
+  /** 効果の紹介文 */
+  description: string;
+}
+
+/**
+ * ステージ特殊イベントの種類です。ラウンド開始時に一定確率で発動し、
+ * 生存者全員に平等な効果を与えます。効果量はエンジンに実装済みで、
+ * AI は画像に合うものを選んで固有名を付けます。
+ * - meteor: 生存者全員がダメージを受ける(戦闘不能にはならない)
+ * - spring: 生存者全員のHPが少し回復する
+ * - mana-burst: 生存者全員のMPが大きく回復する
+ * - miasma: 状態異常でない生存者全員がやけど状態になる
+ */
+export type StageEventId = "meteor" | "spring" | "mana-burst" | "miasma";
+
+/** ステージ特殊イベントの種類一覧です(検証・表示で使用します)。 */
+export const STAGE_EVENT_IDS = [
+  "meteor",
+  "spring",
+  "mana-burst",
+  "miasma",
+] as const satisfies readonly StageEventId[];
+
+/**
+ * ステージ特殊イベントの効果の短い要約です。
+ * ステージ生成プロンプトの候補提示と、効果の説明表示に共用します。
+ */
+export const STAGE_EVENT_SUMMARIES = {
+  meteor: "全員にダメージを与える隕石が降る",
+  spring: "全員のHPを少し回復する泉がわく",
+  "mana-burst": "全員のMPを大きく回復する魔力があふれる",
+  miasma: "全員をやけど状態にする瘴気が立ちこめる",
+} as const satisfies Record<StageEventId, string>;
+
+/** ステージ特殊イベントです。効果(id)はエンジン実装済み、名前はAIが付けます。 */
+export interface StageEvent {
+  /** 効果の種類(エンジンが解釈するID) */
+  id: StageEventId;
+  /** AIが付けた固有名(例:「隕石落とし」) */
+  name: string;
+  /** 効果の紹介文 */
+  description: string;
+}
+
+/**
+ * Gemini Nano が画像認識から生成するステージ情報一式です。
+ * ステージには数値ステータスを持たせず、特性・イベントの種類(id)だけを
+ * AI に選ばせます(効果量はエンジン側の定数のため、JSON出力を小さく保てます)。
+ */
+export interface GeneratedStage {
+  /** ステージ名(例:「灼熱の闘技場」) */
+  title: string;
+  /** ステージの紹介文 */
+  description: string;
+  /** 常時発動するステージ特性 */
+  trait: StageTrait;
+  /** ラウンド開始時に一定確率で発動する特殊イベント */
+  event: StageEvent;
+}
+
+/** localStorage に保存されるステージです。 */
+export interface Stage extends GeneratedStage {
+  /** 一意なID(crypto.randomUUID で採番) */
+  id: string;
+  /** ユーザーが付けた名前 */
+  name: string;
+  /** 縮小済み画像の DataURL(JPEG) */
+  imageDataUrl: string;
+  /** 作成日時(ISO 8601) */
+  createdAt: string;
+}
+
+/**
+ * バトルエンジンが必要とする最小限のステージ情報です。
+ * 永続化用フィールド(id・name・imageDataUrl・createdAt・title・description)を
+ * 含まないため、エンジンはステージの保存形式を知る必要がありません。
+ */
+export type BattleStage = Pick<Stage, "trait" | "event">;
+
+/**
  * Gemini Nano が画像認識から生成するステータス一式です。
  * 数値の許容範囲は ai/schema.ts の STAT_RANGES で定義します。
  */
@@ -281,6 +395,44 @@ export type BattleEventPayload =
         type: "regenerate";
         /** 実際に回復した量(最大HPを超えた分は含まない) */
         healed: number;
+      }
+    | {
+        /**
+         * ステージ特殊イベントによる行動後のダメージ(自己対象)。
+         * ラウンド開始時に生存者ごとに1件ずつ発行されます
+         */
+        type: "stage-damage";
+        eventId: StageEventId;
+        eventName: string;
+        /** そのラウンドのステージイベント群で最初の1件かどうか */
+        announce: boolean;
+        damage: number;
+      }
+    | {
+        /** ステージ特殊イベントによるHP回復(自己対象) */
+        type: "stage-heal";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        /** 実際に回復した量(最大HPを超えた分は含まない) */
+        healed: number;
+      }
+    | {
+        /** ステージ特殊イベントによるMP回復(自己対象) */
+        type: "stage-mp";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        /** 実際に回復した量(最大MPを超えた分は含まない) */
+        restored: number;
+      }
+    | {
+        /** ステージ特殊イベントによるステータス異常付与(自己対象) */
+        type: "stage-ailment";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        ailment: Extract<AilmentType, "burn">;
       }
   );
 

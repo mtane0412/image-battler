@@ -11,7 +11,7 @@
  *   実況AIと同じく演出の失敗でバトルを止めない設計です。警告ログで明示します)
  */
 import seManifest from "./se-manifest.json";
-import type { AilmentType, BattleEvent, SpecialMove } from "../types";
+import type { AilmentType, BattleEvent, SpecialMove, StageEventId } from "../types";
 
 /** 効果音のキー(se-manifest.json のキーと一致します)。 */
 export type SeKey = keyof typeof seManifest;
@@ -123,6 +123,17 @@ const AILMENT_SE_KEYS = {
 } as const satisfies Record<AilmentType, SeKey>;
 
 /**
+ * ステージ特殊イベントごとの効果音キーです。既存の必殺技用素材を流用するため、
+ * ステージ機能のために新規素材(npm run fetch:se)を追加する必要はありません。
+ */
+const STAGE_EVENT_SE_KEYS = {
+  meteor: "special-quake",
+  spring: "special-holy",
+  "mana-burst": "special-thunder",
+  miasma: "special-dark",
+} as const satisfies Record<StageEventId, SeKey>;
+
+/**
  * バトルイベントを効果音キーに変換します。
  * 効果音を鳴らさないイベント(スリップダメージ・行動不能・解除・endure)では
  * null を返します(該当する素材がないため、ログと視覚演出のみで伝えます)。
@@ -160,6 +171,11 @@ export function seKeyForEvent(
       // 経過イベント(life-steal / regenerate 含む)は毎ターン発生しうるため
       // 効果音を鳴らさない(必殺技音の特別感を保つ)
       return null;
+    case "stage-damage":
+    case "stage-heal":
+    case "stage-mp":
+    case "stage-ailment":
+      return STAGE_EVENT_SE_KEYS[event.eventId];
   }
 }
 

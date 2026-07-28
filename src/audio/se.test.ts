@@ -170,6 +170,27 @@ describe("seKeyForEvent", () => {
     expect(seKeyForEvent(makeEvent(attackPayload, { turn: 2 }), "special-impact")).toBe("attack2");
   });
 
+  it("ステージ特殊イベントはイベントIDごとに固定の効果音になる(既存素材を流用)", () => {
+    const cases = [
+      { type: "stage-damage", eventId: "meteor", expected: "special-quake" },
+      { type: "stage-heal", eventId: "spring", expected: "special-holy" },
+      { type: "stage-mp", eventId: "mana-burst", expected: "special-thunder" },
+      { type: "stage-ailment", eventId: "miasma", expected: "special-dark" },
+    ] as const;
+    for (const { type, eventId, expected } of cases) {
+      const payload: BattleEventPayload =
+        type === "stage-damage"
+          ? { type, eventId, eventName: "テスト効果", announce: true, damage: 20 }
+          : type === "stage-heal"
+            ? { type, eventId, eventName: "テスト効果", announce: true, healed: 20 }
+            : type === "stage-mp"
+              ? { type, eventId, eventName: "テスト効果", announce: true, restored: 30 }
+              : { type, eventId, eventName: "テスト効果", announce: true, ailment: "burn" };
+      const key = seKeyForEvent(makeEvent(payload), "special-impact");
+      expect(key).toBe(expected);
+    }
+  });
+
   it("スリップダメージ・行動不能・解除・endure・パッシブの回復は効果音なし(null)になる", () => {
     // life-steal / regenerate は毎ターン発生しうる経過イベントのため、
     // 効果音を鳴らさずログのみで伝える(必殺技音の特別感を保つ)
