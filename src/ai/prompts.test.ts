@@ -13,6 +13,7 @@ import {
   buildRoyaleResultPrompt,
   buildRoyaleStoryPrompt,
   buildSpecialMoveSpeechPrompt,
+  buildStagePrompt,
   buildStoryPrompt,
   buildVictorySpeechPrompt,
   formatOpponentsLabel,
@@ -42,6 +43,46 @@ describe("buildCharacterPrompt", () => {
     // 候補にないidは提示されない
     expect(prompt).not.toContain("crit-master");
     expect(prompt).not.toContain("mp-boost");
+  });
+});
+
+describe("buildStagePrompt", () => {
+  it("ステージ名が含まれる", () => {
+    const prompt = buildStagePrompt("灼熱の闘技場", ["blazing", "fortified"], [
+      "meteor",
+      "spring",
+    ]);
+    expect(prompt).toContain("灼熱の闘技場");
+  });
+
+  it("ステージ特性は渡した候補だけが効果の要約付きで含まれる", () => {
+    const prompt = buildStagePrompt(
+      "極寒の氷原",
+      ["fortunate", "mana-rich"],
+      ["meteor", "spring"],
+    );
+    for (const id of ["fortunate", "mana-rich"]) {
+      expect(prompt).toContain(id);
+    }
+    expect(prompt).toContain("全員の会心率が上がる");
+    // 候補にないidは提示されない
+    expect(prompt).not.toContain("blazing");
+    expect(prompt).not.toContain("fortified");
+  });
+
+  it("ステージ特殊イベントは渡した候補だけが効果の要約付きで含まれる", () => {
+    const prompt = buildStagePrompt(
+      "瘴気の沼地",
+      ["blazing", "fortified"],
+      ["mana-burst", "miasma"],
+    );
+    for (const id of ["mana-burst", "miasma"]) {
+      expect(prompt).toContain(id);
+    }
+    expect(prompt).toContain("全員をやけど状態にする瘴気が立ちこめる");
+    // 候補にないidは提示されない
+    expect(prompt).not.toContain("meteor");
+    expect(prompt).not.toContain("spring");
   });
 });
 

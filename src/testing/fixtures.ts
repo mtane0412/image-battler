@@ -7,6 +7,7 @@ import type {
   Character,
   PassiveSkill,
   SpecialMove,
+  Stage,
   StageEvent,
   StageTrait,
 } from "../types";
@@ -122,6 +123,24 @@ export function makeBattleStage(
   return {
     trait: makeStageTrait("blazing"),
     event: makeStageEvent("meteor"),
+    ...overrides,
+  };
+}
+
+/**
+ * テスト用の永続化済みステージを生成します。
+ * 指定しなかった項目は読みやすい既定値で埋めます。
+ */
+export function makeStage(overrides: Partial<Stage> = {}): Stage {
+  return {
+    id: "stage-テスト",
+    name: "テストステージ",
+    title: "試験の闘技場",
+    description: "テスト用のステージです",
+    trait: makeStageTrait("blazing"),
+    event: makeStageEvent("meteor"),
+    imageDataUrl: "data:image/jpeg;base64,dGVzdA==",
+    createdAt: "2026-07-27T00:00:00.000Z",
     ...overrides,
   };
 }

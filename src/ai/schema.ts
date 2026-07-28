@@ -12,9 +12,14 @@
  */
 import type {
   AilmentType,
+  GeneratedStage,
   GeneratedStats,
   PassiveSkill,
   PassiveSkillId,
+  StageEvent,
+  StageEventId,
+  StageTrait,
+  StageTraitId,
 } from "../types";
 import { AILMENT_TYPES, SPECIAL_MOVE_TYPES } from "../types";
 
@@ -22,6 +27,14 @@ import { AILMENT_TYPES, SPECIAL_MOVE_TYPES } from "../types";
 export class CharacterParseError extends Error {
   override name = "CharacterParseError";
 }
+
+/** ステージ生成のモデル出力の検証に失敗したときに投げるエラーです。 */
+export class StageParseError extends Error {
+  override name = "StageParseError";
+}
+
+/** モデル出力パース失敗時に投げるエラーのコンストラクタ型です。 */
+type ParseErrorClass = new (message: string) => Error;
 
 /** 各ステータスの許容範囲です。JSON Schema と検証の双方で使用します。 */
 export const STAT_RANGES = {
@@ -132,6 +145,53 @@ export function buildCharacterGenerationSchema(
 }
 
 /**
+ * Prompt API の responseConstraint に渡す JSON Schema を組み立てます(ステージ用)。
+ * 特性・特殊イベントのidは抽選済みの候補(traitCandidates/eventCandidates)だけを
+ * enum に許可します。効果量はエンジン側の定数のため数値フィールドは持たせません。
+ * @throws Error 候補が空の場合(enumが空のスキーマは無意味なため Fail-Fast)
+ */
+export function buildStageGenerationSchema(
+  traitCandidates: readonly StageTraitId[],
+  eventCandidates: readonly StageEventId[],
+) {
+  if (traitCandidates.length === 0) {
+    throw new Error("ステージ特性の候補が空です(抽選結果を渡してください)");
+  }
+  if (eventCandidates.length === 0) {
+    throw new Error("ステージ特殊イベントの候補が空です(抽選結果を渡してください)");
+  }
+  return {
+    type: "object",
+    required: ["title", "description", "trait", "event"],
+    additionalProperties: false,
+    properties: {
+      title: { type: "string", maxLength: TEXT_LIMITS.name },
+      description: { type: "string", maxLength: TEXT_LIMITS.characterDescription },
+      trait: {
+        type: "object",
+        required: ["id", "name", "description"],
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", enum: traitCandidates },
+          name: { type: "string", maxLength: TEXT_LIMITS.name },
+          description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
+        },
+      },
+      event: {
+        type: "object",
+        required: ["id", "name", "description"],
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", enum: eventCandidates },
+          name: { type: "string", maxLength: TEXT_LIMITS.name },
+          description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
+        },
+      },
+    },
+  } as const;
+}
+
+/**
  * モデル出力のJSON文字列を検証し、GeneratedStats として返します。
  * @param allowedPassiveIds 抽選済みのパッシブ候補。候補外のidは拒否します
  * @throws CharacterParseError 出力がJSONでない・範囲外・欠落している場合
@@ -140,16 +200,7 @@ export function parseGeneratedStats(
   raw: string,
   allowedPassiveIds: readonly PassiveSkillId[],
 ): GeneratedStats {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    parsed = parseWithQuirkRepairs(raw);
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new CharacterParseError("モデル出力がオブジェクトではありません");
-  }
-  const obj = parsed as Record<string, unknown>;
+  const obj = parseModelOutputObject(raw);
 
   const stats = {
     hp: readInt(obj, "hp", STAT_RANGES.hp),
@@ -167,8 +218,30 @@ export function parseGeneratedStats(
 }
 
 /**
+ * モデル出力(JSON文字列)を検証してオブジェクトへパースします。
+ * 直接パースできない場合は Gemini Nano の既知の癖の修復(parseWithQuirkRepairs)を
+ * 試みます。キャラクター生成・ステージ生成の両方が共用します。
+ * @throws ErrorClass の指定エラー(既定 CharacterParseError) 出力がJSONでない・オブジェクトでない場合
+ */
+function parseModelOutputObject(
+  raw: string,
+  ErrorClass: ParseErrorClass = CharacterParseError,
+): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = parseWithQuirkRepairs(raw, ErrorClass);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new ErrorClass("モデル出力がオブジェクトではありません");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/**
  * Gemini Nano の既知の癖を修復した候補を順にパースし、最初に解釈できた値を
- * 返します。どの候補でも解釈できない場合は CharacterParseError を投げます。
+ * 返します。どの候補でも解釈できない場合は ErrorClass のエラーを投げます。
  *
  * 実機で確認した決定論的な癖(いずれも responseConstraint では防げません):
  * 1. 日本語の文字列値の閉じ引用符を「'」と出力する(例: `…する。'}}`)
@@ -179,7 +252,10 @@ export function parseGeneratedStats(
  * JSONとして成立しない候補は採用されないため、構文を壊す誤修復は
  * 排除されます(構文的に成立した最初の候補を決定論的に採用します)。
  */
-function parseWithQuirkRepairs(raw: string): unknown {
+function parseWithQuirkRepairs(
+  raw: string,
+  ErrorClass: ParseErrorClass = CharacterParseError,
+): unknown {
   const trimmed = trimTrailingGarbage(raw);
   const quoteClosed = repairMissingClosingQuote(trimmed);
   const candidates = [
@@ -197,7 +273,7 @@ function parseWithQuirkRepairs(raw: string): unknown {
     }
   }
   // 診断のため、先頭と末尾の両方を含めます(末尾で壊れることが多いため)
-  throw new CharacterParseError(
+  throw new ErrorClass(
     `モデル出力をJSONとして解釈できませんでした(先頭: ${raw.slice(0, 60)} / 末尾: ${raw.slice(-60)})`,
   );
 }
@@ -239,18 +315,23 @@ function trimTrailingGarbage(raw: string): string {
   return lastBrace === -1 ? raw : raw.slice(0, lastBrace + 1);
 }
 
-/** 指定キーの整数値を検証付きで読み取ります。 */
+/**
+ * 指定キーの整数値を検証付きで読み取ります。
+ * ErrorClass はキャラクター生成・ステージ生成のどちらから呼ばれたかに応じて
+ * 呼び出し側が指定します(既定 CharacterParseError)。
+ */
 function readInt(
   obj: Record<string, unknown>,
   key: string,
   range: { min: number; max: number },
+  ErrorClass: ParseErrorClass = CharacterParseError,
 ): number {
   const value = obj[key];
   if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new CharacterParseError(`${key} が整数ではありません: ${String(value)}`);
+    throw new ErrorClass(`${key} が整数ではありません: ${String(value)}`);
   }
   if (value < range.min || value > range.max) {
-    throw new CharacterParseError(
+    throw new ErrorClass(
       `${key} が許容範囲(${range.min}〜${range.max})外です: ${value}`,
     );
   }
@@ -258,10 +339,14 @@ function readInt(
 }
 
 /** 指定キーの空でない文字列を検証付きで読み取ります(前後の空白は除去)。 */
-function readText(obj: Record<string, unknown>, key: string): string {
+function readText(
+  obj: Record<string, unknown>,
+  key: string,
+  ErrorClass: ParseErrorClass = CharacterParseError,
+): string {
   const value = obj[key];
   if (typeof value !== "string" || value.trim() === "") {
-    throw new CharacterParseError(`${key} が空か文字列ではありません`);
+    throw new ErrorClass(`${key} が空か文字列ではありません`);
   }
   return value.trim();
 }
@@ -271,10 +356,11 @@ function readChoice<T extends string>(
   obj: Record<string, unknown>,
   key: string,
   choices: readonly T[],
+  ErrorClass: ParseErrorClass = CharacterParseError,
 ): T {
   const value = obj[key];
   if (typeof value !== "string" || !(choices as readonly string[]).includes(value)) {
-    throw new CharacterParseError(
+    throw new ErrorClass(
       `${key} が不正な値です(許可: ${choices.join(", ")}): ${String(value)}`,
     );
   }
@@ -285,10 +371,11 @@ function readChoice<T extends string>(
 function readObject(
   obj: Record<string, unknown>,
   key: string,
+  ErrorClass: ParseErrorClass = CharacterParseError,
 ): Record<string, unknown> {
   const value = obj[key];
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new CharacterParseError(`${key} がオブジェクトではありません`);
+    throw new ErrorClass(`${key} がオブジェクトではありません`);
   }
   return value as Record<string, unknown>;
 }
@@ -334,5 +421,57 @@ function readPassive(
     id: readChoice(passive, "id", allowedPassiveIds),
     name: readText(passive, "name"),
     description: readText(passive, "description"),
+  };
+}
+
+/**
+ * モデル出力のJSON文字列を検証し、GeneratedStage として返します。
+ * @param allowedTraitIds 抽選済みの特性候補。候補外のidは拒否します
+ * @param allowedEventIds 抽選済みの特殊イベント候補。候補外のidは拒否します
+ * @throws StageParseError 出力がJSONでない・欠落している場合
+ */
+export function parseGeneratedStage(
+  raw: string,
+  allowedTraitIds: readonly StageTraitId[],
+  allowedEventIds: readonly StageEventId[],
+): GeneratedStage {
+  const obj = parseModelOutputObject(raw, StageParseError);
+  return {
+    title: readText(obj, "title", StageParseError),
+    description: readText(obj, "description", StageParseError),
+    trait: readStageTrait(obj, allowedTraitIds),
+    event: readStageEvent(obj, allowedEventIds),
+  };
+}
+
+/**
+ * trait オブジェクトを検証付きで読み取ります。
+ * idは抽選済みの候補(allowedTraitIds)に含まれる値だけを許可します。
+ */
+function readStageTrait(
+  obj: Record<string, unknown>,
+  allowedTraitIds: readonly StageTraitId[],
+): StageTrait {
+  const trait = readObject(obj, "trait", StageParseError);
+  return {
+    id: readChoice(trait, "id", allowedTraitIds, StageParseError),
+    name: readText(trait, "name", StageParseError),
+    description: readText(trait, "description", StageParseError),
+  };
+}
+
+/**
+ * event オブジェクトを検証付きで読み取ります。
+ * idは抽選済みの候補(allowedEventIds)に含まれる値だけを許可します。
+ */
+function readStageEvent(
+  obj: Record<string, unknown>,
+  allowedEventIds: readonly StageEventId[],
+): StageEvent {
+  const event = readObject(obj, "event", StageParseError);
+  return {
+    id: readChoice(event, "id", allowedEventIds, StageParseError),
+    name: readText(event, "name", StageParseError),
+    description: readText(event, "description", StageParseError),
   };
 }

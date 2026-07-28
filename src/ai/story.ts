@@ -61,13 +61,22 @@ function pickOne<T>(pool: readonly T[], rng: () => number): T {
 
 /**
  * ストーリーの材料(舞台・因縁)を無作為に抽選します。
+ *
+ * override.stage を渡すと、抽選結果の舞台をユーザーが選んだステージ名で
+ * 上書きします(乱数の消費順は変えません)。ステージ未選択時は override を
+ * 省略するか {} を渡してください。舞台を常に抽選してから上書きする理由は、
+ * 因縁(relation)の抽選が舞台の抽選回数に依存しないようにするためです
+ * (先に抽選をスキップすると relation の結果まで変わってしまいます)。
  * @param rng [0, 1) の乱数を返す関数(テストでは決め打ちの列を注入します)
  */
 export function sampleStoryIngredients(
   rng: () => number = Math.random,
+  override: { stage?: string } = {},
 ): StoryIngredients {
+  const stage = pickOne(STORY_STAGES, rng);
+  const relation = pickOne(STORY_RELATIONS, rng);
   return {
-    stage: pickOne(STORY_STAGES, rng),
-    relation: pickOne(STORY_RELATIONS, rng),
+    stage: override.stage ?? stage,
+    relation,
   };
 }
