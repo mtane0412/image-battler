@@ -8,7 +8,7 @@ import { PASSIVE_CANDIDATE_COUNT, samplePassiveCandidates } from "./passives";
 import { sequenceRng } from "../testing/fixtures";
 
 describe("samplePassiveCandidates", () => {
-  it("候補を3件返し、すべて定義済みのidで重複がない", () => {
+  it("候補を4件返し、すべて定義済みのidで重複がない", () => {
     const candidates = samplePassiveCandidates();
     expect(candidates).toHaveLength(PASSIVE_CANDIDATE_COUNT);
     expect(new Set(candidates).size).toBe(PASSIVE_CANDIDATE_COUNT);
@@ -18,20 +18,19 @@ describe("samplePassiveCandidates", () => {
   });
 
   it("乱数0を注入すると一覧の先頭から順に選ばれる(決定論的)", () => {
-    expect(samplePassiveCandidates(sequenceRng([0, 0, 0]))).toEqual([
+    expect(samplePassiveCandidates(sequenceRng([0, 0, 0, 0]))).toEqual([
       "crit-master",
       "ailment-guard",
       "endure",
+      "counter",
     ]);
   });
 
   it("乱数の値によって選ばれる候補が変わる", () => {
     // 0.99 では毎回、残っている候補の末尾が選ばれる
-    expect(samplePassiveCandidates(sequenceRng([0.99, 0.99, 0.99]))).toEqual([
-      "first-strike",
-      "evasion",
-      "berserk",
-    ]);
+    expect(
+      samplePassiveCandidates(sequenceRng([0.99, 0.99, 0.99, 0.99])),
+    ).toEqual(["cleanse", "overheal", "sure-hit", "giant-killer"]);
   });
 
   it("乱数が範囲外([0,1)以外)の値を返す場合はエラーになる(Fail-Fast)", () => {

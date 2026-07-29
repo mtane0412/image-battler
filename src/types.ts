@@ -133,6 +133,16 @@ export interface SpecialMove {
  * - berserk: HPが減っている(30%以下)とき攻撃力が上がる
  * - evasion: 相手の通常攻撃のミス率が上がる
  * - first-strike: 素早さに関係なく先攻になる
+ * - guard-master: 受けるダメージが下がる
+ * - pierce: 通常攻撃が相手の防御力を無視する
+ * - thorns: 通常攻撃を受けると必ずダメージを反射する
+ * - special-master: 必殺技を出しやすくなる
+ * - mp-saver: 必殺技の消費MPが半分になる
+ * - crit-guard: 会心の一撃を受けない
+ * - giant-killer: 自分より最大HPが多い相手への与ダメージが上がる
+ * - sure-hit: 自分の通常攻撃が外れない
+ * - overheal: HPの回復量が増える
+ * - cleanse: 行動後に一定確率でステータス異常が自然に治る
  */
 export type PassiveSkillId =
   | "crit-master"
@@ -144,7 +154,17 @@ export type PassiveSkillId =
   | "regenerate"
   | "berserk"
   | "evasion"
-  | "first-strike";
+  | "first-strike"
+  | "guard-master"
+  | "pierce"
+  | "thorns"
+  | "special-master"
+  | "mp-saver"
+  | "crit-guard"
+  | "giant-killer"
+  | "sure-hit"
+  | "overheal"
+  | "cleanse";
 
 /** パッシブスキルの種類一覧です(検証・表示で使用します)。 */
 export const PASSIVE_SKILL_IDS = [
@@ -158,6 +178,16 @@ export const PASSIVE_SKILL_IDS = [
   "berserk",
   "evasion",
   "first-strike",
+  "guard-master",
+  "pierce",
+  "thorns",
+  "special-master",
+  "mp-saver",
+  "crit-guard",
+  "giant-killer",
+  "sure-hit",
+  "overheal",
+  "cleanse",
 ] as const satisfies readonly PassiveSkillId[];
 
 /**
@@ -175,6 +205,16 @@ export const PASSIVE_SKILL_SUMMARIES = {
   berserk: "HPが減ると攻撃力が上がる",
   evasion: "相手の攻撃をかわしやすい",
   "first-strike": "素早さに関係なく先手を取る",
+  "guard-master": "受けるダメージが下がる",
+  pierce: "通常攻撃が相手の防御力を無視する",
+  thorns: "攻撃されると必ずダメージを反射する",
+  "special-master": "必殺技が出やすい",
+  "mp-saver": "必殺技の消費MPが半分になる",
+  "crit-guard": "会心の一撃を受けない",
+  "giant-killer": "自分より体力が多い相手に強い",
+  "sure-hit": "自分の攻撃が外れない",
+  overheal: "HPの回復量が増える",
+  cleanse: "状態異常が自然に治りやすい",
 } as const satisfies Record<PassiveSkillId, string>;
 
 /** パッシブスキルです。効果(id)はエンジン実装済み、名前はAIが付けます。 */
@@ -471,9 +511,13 @@ export type BattleEventPayload =
         ailment: Extract<AilmentType, "paralysis" | "freeze">;
       }
     | {
-        /** 凍結の解除(自己対象) */
+        /**
+         * ステータス異常の解除(自己対象)。凍結の自然解凍のほか、
+         * パッシブ「cleanse」による解除でも発生します(cleanseはどの
+         * 状態異常も解除しうるため、freeze以外の値も取ります)
+         */
         type: "ailment-cure";
-        ailment: Extract<AilmentType, "freeze">;
+        ailment: AilmentType;
       }
     | {
         /** こんらんによる行動時の自傷(自己対象。この場合は通常の行動を行いません) */
@@ -484,6 +528,14 @@ export type BattleEventPayload =
     | {
         /** パッシブ「counter」による反撃(actor が反撃する側) */
         type: "counter";
+        damage: number;
+      }
+    | {
+        /**
+         * パッシブ「thorns」による反射ダメージ(actor が反射する側)。
+         * counter と異なり確率判定なしで必ず発動します
+         */
+        type: "thorns";
         damage: number;
       }
     | {

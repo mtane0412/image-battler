@@ -1035,6 +1035,7 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
     switch (event.type) {
       case "attack":
       case "counter":
+      case "thorns":
         lunge(actor.root, target.root);
         target.root.classList.add("shake");
         break;
@@ -1172,6 +1173,16 @@ function narrationParamsFor(
         );
       }
       return { ...base, type: "counter", passiveName: passive.name, damage: event.damage };
+    }
+    case "thorns": {
+      // thorns イベントはパッシブ保持者しか起こさないため、欠落はデータ不正です
+      const passive = actor.character.passive;
+      if (passive === null) {
+        throw new Error(
+          `とげイベントの行動者「${actor.character.name}」がパッシブを持っていません`,
+        );
+      }
+      return { ...base, type: "thorns", passiveName: passive.name, damage: event.damage };
     }
     case "ailment-damage":
     case "ailment-skip":

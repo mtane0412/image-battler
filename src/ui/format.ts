@@ -53,11 +53,16 @@ export function describeEvent(
         ? `${actor}は からだが しびれて うごけない!`
         : `${actor}は こおりついて うごけない!`;
     case "ailment-cure":
-      return `${actor}の こおりが とけた!`;
+      // freezeは「とけた」、それ以外(cleanseによる解除)は「なおった」と表現します
+      return event.ailment === "freeze"
+        ? `${actor}の こおりが とけた!`
+        : `${actor}の ${AILMENT_LABELS[event.ailment]}が なおった!`;
     case "ailment-confusion":
       return `${actor}は こんらんして じぶんを こうげきした! ${event.damage}の ダメージ!`;
     case "counter":
       return `${actor}の はんげき! ${target}に ${event.damage}の ダメージ!`;
+    case "thorns":
+      return `${actor}の とげが ${target}を きずつけた! ${event.damage}の ダメージ!`;
     case "endure":
       return `${actor}は こんじょうで もちこたえた!`;
     case "life-steal":
