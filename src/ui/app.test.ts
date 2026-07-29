@@ -51,4 +51,36 @@ describe("initApp", () => {
       footer?.querySelector('a[href="https://soundeffect-lab.info/"]'),
     ).not.toBeNull();
   });
+
+  it("ヘッダーにGitHubリポジトリへのリンクを表示する", () => {
+    const root = document.createElement("div");
+    initApp(root);
+    const header = root.querySelector(".app-header");
+    const githubLink = header?.querySelector<HTMLAnchorElement>(
+      "a.github-link",
+    );
+    expect(githubLink).not.toBeNull();
+    expect(githubLink?.href).toBe(
+      "https://github.com/mtane0412/image-battler",
+    );
+    expect(githubLink?.target).toBe("_blank");
+    expect(githubLink?.rel).toContain("noopener");
+  });
+
+  it("ヘッダーに設定パネルを開く歯車ボタンを表示し、押すとパネルが開く", () => {
+    const root = document.createElement("div");
+    initApp(root);
+    const header = root.querySelector(".app-header");
+    const settingsButton = header?.querySelector<HTMLButtonElement>(
+      ".settings-trigger",
+    );
+    expect(settingsButton).not.toBeNull();
+
+    const overlay = root.querySelector<HTMLDivElement>(".settings-overlay");
+    expect(overlay).not.toBeNull();
+    expect(overlay?.hidden).toBe(true);
+
+    settingsButton?.click();
+    expect(overlay?.hidden).toBe(false);
+  });
 });

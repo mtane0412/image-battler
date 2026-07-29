@@ -5,7 +5,8 @@
  * - selectRandomBgmKey: 注入した乱数に応じて全戦闘曲が選択されうること
  * - bgmUrl: マニフェストのファイル名を含むURLを返すこと
  * - loadBgmEnabled / saveBgmEnabled: BGM設定の既定値(ON)と保存・復元
- * - createBgmPlayer: ループ再生・停止・タブ非表示時の一時停止・再生失敗時の安全性
+ * - loadBgmVolume / saveBgmVolume: BGM音量の既定値と保存・復元
+ * - createBgmPlayer: ループ再生・停止・タブ非表示時の一時停止・再生失敗時の安全性・音量変更
  *
  * 音声再生(HTMLAudioElement)は外部依存(ブラウザAPI)のため、
  * フェイクのAudio実装を注入してテストします。
@@ -15,10 +16,13 @@ import {
   BGM_ENABLED_STORAGE_KEY,
   BGM_KEYS,
   BGM_VOLUME,
+  BGM_VOLUME_STORAGE_KEY,
   bgmUrl,
   createBgmPlayer,
   loadBgmEnabled,
+  loadBgmVolume,
   saveBgmEnabled,
+  saveBgmVolume,
   selectRandomBgmKey,
   type BgmPlayer,
 } from "./bgm";
@@ -75,6 +79,43 @@ describe("loadBgmEnabled / saveBgmEnabled", () => {
   });
 });
 
+describe("loadBgmVolume / saveBgmVolume", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("未設定のときは既定音量(BGM_VOLUME)を返す", () => {
+    expect(loadBgmVolume()).toBe(BGM_VOLUME);
+  });
+
+  it("保存した音量が復元される", () => {
+    saveBgmVolume(0.6);
+    expect(loadBgmVolume()).toBe(0.6);
+  });
+
+  it("範囲外(0未満・1超)の値が保存されていた場合は既定音量にフォールバックする", () => {
+    localStorage.setItem(BGM_VOLUME_STORAGE_KEY, "1.5");
+    expect(loadBgmVolume()).toBe(BGM_VOLUME);
+    localStorage.setItem(BGM_VOLUME_STORAGE_KEY, "-0.1");
+    expect(loadBgmVolume()).toBe(BGM_VOLUME);
+  });
+
+  it("数値でない値が保存されていた場合は既定音量にフォールバックする", () => {
+    localStorage.setItem(BGM_VOLUME_STORAGE_KEY, "壊れた値");
+    expect(loadBgmVolume()).toBe(BGM_VOLUME);
+  });
+
+  it("空文字列が保存されていた場合は既定音量にフォールバックする(Number('')が0になる罠を防ぐ)", () => {
+    localStorage.setItem(BGM_VOLUME_STORAGE_KEY, "");
+    expect(loadBgmVolume()).toBe(BGM_VOLUME);
+  });
+
+  it("設定は専用のlocalStorageキーに保存される", () => {
+    saveBgmVolume(0.8);
+    expect(localStorage.getItem(BGM_VOLUME_STORAGE_KEY)).toBe("0.8");
+  });
+});
+
 describe("createBgmPlayer", () => {
   /**
    * HTMLAudioElement のフェイク実装です。
@@ -120,6 +161,11 @@ describe("createBgmPlayer", () => {
     return { player, created };
   }
 
+  beforeEach(() => {
+    // loadBgmVolume() が読む音量設定が前のテストから残らないようにします
+    localStorage.clear();
+  });
+
   afterEach(() => {
     // 再生中のプレイヤーを停止し、documentに登録したvisibilitychangeリスナーが
     // 後続のテストに残らないようにします(停止済みプレイヤーへのstop()は無害です)
@@ -140,6 +186,31 @@ describe("createBgmPlayer", () => {
     expect(audio.loop).toBe(true);
     expect(audio.volume).toBe(BGM_VOLUME);
     expect(audio.playCallCount).toBe(1);
+  });
+
+  it("保存済みの音量設定があればその音量で再生する", () => {
+    saveBgmVolume(0.7);
+    const { player, created } = makePlayer();
+    player.play();
+    const audio = created[0];
+    if (audio === undefined) throw new Error("Audioが生成されていません");
+    expect(audio.volume).toBe(0.7);
+  });
+
+  it("setVolume()で再生中の音量を即座に変更できる", () => {
+    const { player, created } = makePlayer();
+    player.play();
+    const audio = created[0];
+    if (audio === undefined) throw new Error("Audioが生成されていません");
+    player.setVolume(0.9);
+    expect(audio.volume).toBe(0.9);
+  });
+
+  it("setVolume()は停止中に呼んでもエラーにならない", () => {
+    const { player } = makePlayer();
+    expect(() => {
+      player.setVolume(0.5);
+    }).not.toThrow();
   });
 
   it("再生中にplay()を重ねても二重再生しない", () => {

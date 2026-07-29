@@ -10,6 +10,11 @@ import { renderCreate } from "./create";
 import { renderStageCreate } from "./stage-create";
 import { renderBattle, renderRoyale } from "./battle";
 import { getSharedBgmPlayer } from "../audio/bgm";
+import { createSettingsPanel } from "./settings-panel";
+import { GITHUB_ICON_SVG } from "./icons";
+
+/** GitHubリポジトリのURLです。 */
+const GITHUB_REPO_URL = "https://github.com/mtane0412/image-battler";
 
 /** アプリを初期化し、ホーム画面を表示します。 */
 export function initApp(root: HTMLElement): void {
@@ -28,9 +33,28 @@ export function initApp(root: HTMLElement): void {
   });
   logoButton.addEventListener("click", () => ctx.navigate({ name: "home" }));
 
+  const settingsPanel = createSettingsPanel();
+
+  const githubLink = el("a", {
+    className: "icon-button github-link",
+    attrs: {
+      href: GITHUB_REPO_URL,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      "aria-label": "GitHubリポジトリを開く",
+    },
+  });
+  githubLink.innerHTML = GITHUB_ICON_SVG;
+
+  const headerActions = el("div", { className: "header-actions" }, [
+    settingsPanel.trigger,
+    githubLink,
+  ]);
+
   const header = el("header", { className: "app-header" }, [
     logoButton,
     el("span", { className: "app-tagline", text: "IMAGE BATTLE ARENA" }),
+    headerActions,
   ]);
 
   // プライバシーと使用モデルの説明です(どの画面でも常に確認できるようフッターに置きます)
@@ -64,7 +88,7 @@ export function initApp(root: HTMLElement): void {
     ]),
   ]);
 
-  root.replaceChildren(header, main, footer);
+  root.replaceChildren(header, main, footer, settingsPanel.overlay);
 
   function render(screen: Screen): void {
     // バトル画面(チーム戦・ロイヤル)以外ではBGMを止めます

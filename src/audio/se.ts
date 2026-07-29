@@ -19,6 +19,41 @@ export type SeKey = keyof typeof seManifest;
 /** 効果音の音量(素材の音圧が高めなので抑えます)。 */
 export const SE_VOLUME = 0.5;
 
+/** 効果音の音量設定を保存するlocalStorageキーです。 */
+export const SE_VOLUME_STORAGE_KEY = "image-battler:se-volume";
+
+/**
+ * 効果音の音量設定(0以上1以下)を読み込みます。
+ * 未設定・範囲外・数値でない場合は既定音量(SE_VOLUME)にフォールバックします
+ * (bgm.tsのloadBgmVolumeと同様、壊れた設定値で無音になることを避けるためです)。
+ * @param storage 保存先(テストではフェイクを注入できます)
+ */
+export function loadSeVolume(storage: Storage = localStorage): number {
+  const raw = storage.getItem(SE_VOLUME_STORAGE_KEY);
+  // Number("") は 0 になってしまう(=有効な音量として通ってしまう)ため、
+  // 空文字列は未設定と同様に既定音量へフォールバックします
+  if (raw === null || raw.trim() === "") {
+    return SE_VOLUME;
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    return SE_VOLUME;
+  }
+  return value;
+}
+
+/**
+ * 効果音の音量設定を保存します。
+ * @param volume 0以上1以下の音量
+ * @param storage 保存先(テストではフェイクを注入できます)
+ */
+export function saveSeVolume(
+  volume: number,
+  storage: Storage = localStorage,
+): void {
+  storage.setItem(SE_VOLUME_STORAGE_KEY, String(volume));
+}
+
 /** 必殺技用効果音のプール(ハッシュによるフォールバック選択の対象)です。 */
 export const SPECIAL_SE_KEYS = [
   "special-flame",
@@ -234,7 +269,7 @@ export function createSePlayer(
     // cloneNode の戻り値型は Node のためアサーションが必要です
     const clone = ensureAudio(key).cloneNode(true) as HTMLAudioElement;
     clone.loop = loop;
-    clone.volume = SE_VOLUME;
+    clone.volume = loadSeVolume();
     clone.play().catch((error: unknown) => {
       console.warn(
         `効果音「${key}」を再生できませんでした(ゲーム進行には影響しません)`,

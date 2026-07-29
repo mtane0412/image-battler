@@ -24,6 +24,9 @@ export const BGM_VOLUME = 0.25;
 /** BGMのON/OFF設定を保存するlocalStorageキーです。 */
 export const BGM_ENABLED_STORAGE_KEY = "image-battler:bgm-enabled";
 
+/** BGMの音量設定を保存するlocalStorageキーです。 */
+export const BGM_VOLUME_STORAGE_KEY = "image-battler:bgm-volume";
+
 /** 選択対象の戦闘曲キーの一覧です(Object.keysの戻り値型を補うアサーションです)。 */
 export const BGM_KEYS = Object.keys(bgmManifest) as readonly BgmKey[];
 
@@ -64,15 +67,50 @@ export function saveBgmEnabled(
   storage.setItem(BGM_ENABLED_STORAGE_KEY, enabled ? "on" : "off");
 }
 
+/**
+ * BGMの音量設定(0以上1以下)を読み込みます。
+ * 未設定・範囲外・数値でない場合は既定音量(BGM_VOLUME)にフォールバックします
+ * (loadBgmEnabledと同様、壊れた設定値でBGMが鳴らなくなることを避けるためです)。
+ * @param storage 保存先(テストではフェイクを注入できます)
+ */
+export function loadBgmVolume(storage: Storage = localStorage): number {
+  const raw = storage.getItem(BGM_VOLUME_STORAGE_KEY);
+  // Number("") は 0 になってしまう(=有効な音量として通ってしまう)ため、
+  // 空文字列は未設定と同様に既定音量へフォールバックします
+  if (raw === null || raw.trim() === "") {
+    return BGM_VOLUME;
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    return BGM_VOLUME;
+  }
+  return value;
+}
+
+/**
+ * BGMの音量設定を保存します。
+ * @param volume 0以上1以下の音量
+ * @param storage 保存先(テストではフェイクを注入できます)
+ */
+export function saveBgmVolume(
+  volume: number,
+  storage: Storage = localStorage,
+): void {
+  storage.setItem(BGM_VOLUME_STORAGE_KEY, String(volume));
+}
+
 /** BGMプレイヤーです。 */
 export interface BgmPlayer {
   /**
    * ランダムに選んだ戦闘曲のループ再生を開始します。
    * すでに再生中の場合は何もしません(二重再生を防ぎます)。
+   * 音量は保存済みの設定(loadBgmVolume)に従います。
    */
   play(): void;
   /** 再生を停止し、曲の先頭へ戻します。停止中は何もしません。 */
   stop(): void;
+  /** 再生中の音量を即座に変更します。停止中は何もしません(設定パネルのスライダー用)。 */
+  setVolume(volume: number): void;
 }
 
 /**
@@ -118,7 +156,7 @@ export function createBgmPlayer(
       }
       const audio = createAudio(bgmUrl(selectRandomBgmKey(random)));
       audio.loop = true;
-      audio.volume = BGM_VOLUME;
+      audio.volume = loadBgmVolume();
       current = audio;
       document.addEventListener("visibilitychange", handleVisibilityChange);
       // タブが非表示の間は再生を保留し、表示に戻ったときに再生を開始します
@@ -134,6 +172,12 @@ export function createBgmPlayer(
       current.pause();
       current.currentTime = 0;
       current = null;
+    },
+    setVolume(volume: number): void {
+      if (current === null) {
+        return;
+      }
+      current.volume = volume;
     },
   };
 }
