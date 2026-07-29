@@ -170,6 +170,10 @@ const STAGE_EVENT_SE_KEYS = {
   heal: "special-holy",
   "mana-restore": "special-thunder",
   ailment: "special-dark",
+  "mana-drain": "special-dark",
+  "attack-up": "special-flame",
+  "defense-down": "special-dark",
+  cleanse: "special-holy",
 } as const satisfies Record<StageEventId, SeKey>;
 
 /**
@@ -219,6 +223,9 @@ export function seKeyForEvent(
     case "stage-heal":
     case "stage-mp":
     case "stage-ailment":
+    case "stage-mp-drain":
+    case "stage-buff":
+    case "stage-cure":
       return STAGE_EVENT_SE_KEYS[event.eventId];
   }
 }

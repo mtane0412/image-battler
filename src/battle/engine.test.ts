@@ -1865,6 +1865,79 @@ describe("simulateBattle: ステージ特性(常時発動・全員平等)", () =
     // bの行動(events[1])のafterに反映される(MP回復はイベント発生の翌イベントに現れる)
     expect(result.events[1]).toMatchObject({ after: { a: { mp: 50 } } });
   });
+
+  it("defense-up は全員の防御力に+10される", () => {
+    // 通常: 40*1.0 - 20*0.4 = 32 / defense-up: 40*1.0 - 30*0.4 = 28
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("defense-up"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([0.9, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({ type: "attack", damage: 28 });
+  });
+
+  it("damage-up は全員の被ダメージが1.3倍になる", () => {
+    // 通常: 32ダメージ → damage-up: round(32 * 1.3) = 42
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 0, mp: 0, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("damage-up"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([0.9, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({ type: "attack", damage: 42 });
+  });
+
+  it("special-boost は必殺技の発動率に+0.2される(通常の0.4では発動しない乱数でも発動する)", () => {
+    // damage = round(50*1.0 + 40*0.5 - 20*0.2) = 66(既存の必殺技テストと同じ計算式)
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, mp: 60, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30, hp: 300 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("special-boost"),
+      event: makeStageEvent("damage"),
+    });
+    // 0.5 は通常の発動率0.4未満ではないが、special-boostで0.6になるため発動する
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([0.9, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({ type: "special-attack", damage: 66 });
+  });
+
+  it("crit-damage-up は会心の一撃のダメージ倍率に+0.5される", () => {
+    // 通常: (40*1.0-20*0.4)*1.5=48 / crit-damage-up: (40*1.0-20*0.4)*2.0=64
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 100, mp: 0, speed: 90 });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("crit-damage-up"),
+      event: makeStageEvent("damage"),
+    });
+    const result = simulateBattle(
+      攻め手,
+      受け手,
+      sequenceRng([0.9, 0.5, 0.1, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "attack",
+      critical: true,
+      damage: 64,
+    });
+  });
 });
 
 describe("simulateBattle: ステージ特殊イベント(ラウンド開始時に抽選)", () => {
@@ -2102,5 +2175,151 @@ describe("simulateBattle: ステージ特殊イベント(ラウンド開始時�
     const perRound = [0.1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
     const rng = sequenceRng(Array.from({ length: 50 }, () => perRound).flat());
     expect(() => simulateBattle(a, b, rng, stage)).not.toThrow();
+  });
+
+  it("mana-drain はMPが減っている対象には効果がなくイベントも出ない", () => {
+    const a = makeCharacter({ id: "a", mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("mana-drain"),
+    });
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([0.2, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events.some((e) => e.type === "stage-mp-drain")).toBe(false);
+  });
+
+  it("mana-drain は生存者全員のMPを最大MPの半分減らす", () => {
+    const a = makeCharacter({ id: "a", mp: 60, speed: 90 });
+    const b = makeCharacter({ id: "b", mp: 60, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("mana-drain"),
+    });
+    const result = simulateBattle(a, b, sequenceRng([0.2]), stage);
+    const drainEvents = result.events.filter((e) => e.type === "stage-mp-drain");
+    expect(drainEvents).toHaveLength(2);
+    expect(drainEvents[0]).toMatchObject({
+      actorId: "a",
+      drained: 30,
+      announce: true,
+      after: { a: { mp: 30 } },
+    });
+    expect(drainEvents[1]).toMatchObject({
+      actorId: "b",
+      drained: 30,
+      announce: false,
+      after: { b: { mp: 30 } },
+    });
+  });
+
+  it("attack-up は生存者全員の攻撃力を恒久的に上げる", () => {
+    const a = makeCharacter({ id: "a", attack: 40, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("attack-up"),
+    });
+    // ラウンド1: イベント発動でa,bのattackBuffが+10される
+    //   → aの攻撃は (40+10)*1.0 - 20*0.4 = 42
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([0.2, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "stage-buff",
+      actorId: "a",
+      attackGain: 10,
+      defenseGain: 0,
+      announce: true,
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "stage-buff",
+      actorId: "b",
+      attackGain: 10,
+      defenseGain: 0,
+      announce: false,
+    });
+    expect(result.events[2]).toMatchObject({ type: "attack", damage: 42 });
+  });
+
+  it("defense-down は生存者全員の防御力を恒久的に下げる", () => {
+    const a = makeCharacter({ id: "a", attack: 40, mp: 0, speed: 90 });
+    const b = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("defense-down"),
+    });
+    // ラウンド1: イベント発動でa,bのdefenseBuffが-10される
+    //   → bの防御は20-10=10、aの攻撃は 40*1.0 - 10*0.4 = 36
+    const result = simulateBattle(
+      a,
+      b,
+      sequenceRng([0.2, 0.5, 0.5, 0.5]),
+      stage,
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "stage-buff",
+      actorId: "a",
+      attackGain: 0,
+      defenseGain: -10,
+      announce: true,
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "stage-buff",
+      actorId: "b",
+      attackGain: 0,
+      defenseGain: -10,
+      announce: false,
+    });
+    expect(result.events[2]).toMatchObject({ type: "attack", damage: 36 });
+  });
+
+  it("cleanse は状態異常中の生存者全員のステータス異常を治す", () => {
+    const 仕掛け役 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "どくのきば", type: "ailment", power: 50, ailment: "poison" }),
+    });
+    const 受け手 = makeCharacter({ id: "b", hp: 200, attack: 40, defense: 20, mp: 0, speed: 30 });
+    const stage = makeBattleStage({
+      trait: makeStageTrait("mp-regen-up"),
+      event: makeStageEvent("cleanse"),
+    });
+    // ラウンド1: イベント不発(0.9) → aの毒技でbのHP200→185・毒付与
+    //   → bの通常攻撃32ダメージ(aのHP 100→68)→ 行動後に毒のスリップダメージ
+    //     round(200/8)=25(bのHP 185→160)
+    // ラウンド2: イベント発動(cleanse)。aは無害なのでスキップ、bの毒が治る
+    const result = simulateBattle(
+      仕掛け役,
+      受け手,
+      sequenceRng([0.9, 0.1, 0.5, 0.5, 0.5, 0.5, 0.2]),
+      stage,
+    );
+    expect(result.events[2]).toMatchObject({
+      type: "ailment-damage",
+      ailment: "poison",
+      damage: 25,
+      after: { b: { hp: 160, ailment: "poison" } },
+    });
+    expect(result.events[3]).toMatchObject({
+      type: "stage-cure",
+      eventId: "cleanse",
+      ailment: "poison",
+      announce: true,
+      actorId: "b",
+      targetId: "b",
+      after: { b: { hp: 160, ailment: null } },
+    });
   });
 });

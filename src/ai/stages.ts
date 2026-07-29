@@ -11,9 +11,9 @@ import { STAGE_EVENT_IDS, STAGE_TRAIT_IDS } from "../types";
 import { sampleWithoutReplacement } from "./sampling";
 
 /** 1回の生成でモデルに提示するステージ特性候補の数です。 */
-export const STAGE_TRAIT_CANDIDATE_COUNT = 2;
+export const STAGE_TRAIT_CANDIDATE_COUNT = 3;
 /** 1回の生成でモデルに提示するステージ特殊イベント候補の数です。 */
-export const STAGE_EVENT_CANDIDATE_COUNT = 2;
+export const STAGE_EVENT_CANDIDATE_COUNT = 3;
 
 /** 抽選済みのステージ候補です(特性→イベントの順に乱数を消費します)。 */
 export interface StageCandidates {

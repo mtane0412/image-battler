@@ -238,12 +238,20 @@ export interface PassiveSkill {
  * - damage-cut: 全員の被ダメージが下がる
  * - crit-up: 全員のクリティカル率が上がる
  * - mp-regen-up: 全員の毎ターンMP回復量が上がる
+ * - defense-up: 全員の防御力が上がる
+ * - damage-up: 全員の被ダメージが上がる
+ * - special-boost: 全員が必殺技を出しやすくなる
+ * - crit-damage-up: 全員の会心の一撃のダメージが上がる
  */
 export type StageTraitId =
   | "attack-up"
   | "damage-cut"
   | "crit-up"
-  | "mp-regen-up";
+  | "mp-regen-up"
+  | "defense-up"
+  | "damage-up"
+  | "special-boost"
+  | "crit-damage-up";
 
 /** ステージ特性の種類一覧です(検証・表示で使用します)。 */
 export const STAGE_TRAIT_IDS = [
@@ -251,6 +259,10 @@ export const STAGE_TRAIT_IDS = [
   "damage-cut",
   "crit-up",
   "mp-regen-up",
+  "defense-up",
+  "damage-up",
+  "special-boost",
+  "crit-damage-up",
 ] as const satisfies readonly StageTraitId[];
 
 /**
@@ -262,6 +274,10 @@ export const STAGE_TRAIT_SUMMARIES = {
   "damage-cut": "全員の被ダメージが下がる",
   "crit-up": "全員の会心率が上がる",
   "mp-regen-up": "全員のMP回復が速い",
+  "defense-up": "全員の防御力が上がる",
+  "damage-up": "全員の被ダメージが上がる",
+  "special-boost": "全員が必殺技を出しやすい",
+  "crit-damage-up": "全員の会心の一撃のダメージが上がる",
 } as const satisfies Record<StageTraitId, string>;
 
 /** ステージ特性です。効果(id)はエンジン実装済み、名前はAIが付けます。 */
@@ -286,8 +302,20 @@ export interface StageTrait {
  * - heal: 生存者全員のHPが少し回復する
  * - mana-restore: 生存者全員のMPが大きく回復する
  * - ailment: 状態異常でない生存者全員がやけど状態になる
+ * - mana-drain: 生存者全員のMPが大きく減る
+ * - attack-up: 生存者全員の攻撃力が恒久的に上がる
+ * - defense-down: 生存者全員の防御力が恒久的に下がる
+ * - cleanse: 状態異常中の生存者全員のステータス異常が治る
  */
-export type StageEventId = "damage" | "heal" | "mana-restore" | "ailment";
+export type StageEventId =
+  | "damage"
+  | "heal"
+  | "mana-restore"
+  | "ailment"
+  | "mana-drain"
+  | "attack-up"
+  | "defense-down"
+  | "cleanse";
 
 /** ステージ特殊イベントの種類一覧です(検証・表示で使用します)。 */
 export const STAGE_EVENT_IDS = [
@@ -295,6 +323,10 @@ export const STAGE_EVENT_IDS = [
   "heal",
   "mana-restore",
   "ailment",
+  "mana-drain",
+  "attack-up",
+  "defense-down",
+  "cleanse",
 ] as const satisfies readonly StageEventId[];
 
 /**
@@ -308,6 +340,10 @@ export const STAGE_EVENT_SUMMARIES = {
   heal: "生存者全員のHPを少し回復する",
   "mana-restore": "生存者全員のMPを大きく回復する",
   ailment: "状態異常でない生存者全員をやけど状態にする",
+  "mana-drain": "生存者全員のMPを大きく減らす",
+  "attack-up": "生存者全員の攻撃力を恒久的に上げる",
+  "defense-down": "生存者全員の防御力を恒久的に下げる",
+  cleanse: "状態異常中の生存者全員のステータス異常を治す",
 } as const satisfies Record<StageEventId, string>;
 
 /** ステージ特殊イベントです。効果(id)はエンジン実装済み、名前はAIが付けます。 */
@@ -591,6 +627,36 @@ export type BattleEventPayload =
         eventName: string;
         announce: boolean;
         ailment: Extract<AilmentType, "burn">;
+      }
+    | {
+        /** ステージ特殊イベントによるMP減少(自己対象) */
+        type: "stage-mp-drain";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        /** 実際に減少した量 */
+        drained: number;
+      }
+    | {
+        /**
+         * ステージ特殊イベントによる攻撃力・防御力の恒久的な増減(自己対象)。
+         * attack-up は attackGain のみ、defense-down は defenseGain(負値)のみが
+         * 非ゼロになります(2種のイベントで共用する型です)
+         */
+        type: "stage-buff";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        attackGain: number;
+        defenseGain: number;
+      }
+    | {
+        /** ステージ特殊イベントによるステータス異常の解除(自己対象) */
+        type: "stage-cure";
+        eventId: StageEventId;
+        eventName: string;
+        announce: boolean;
+        ailment: AilmentType;
       }
   );
 
