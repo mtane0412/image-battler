@@ -169,6 +169,20 @@ const BERSERK_HP_THRESHOLD = 0.3;
 const BERSERK_ATTACK_MULTIPLIER = 1.5;
 /** パッシブ evasion 持ちが通常攻撃を受けるときのミス発生率 */
 const EVASION_MISS_CHANCE = 0.2;
+/** パッシブ guard-master の被ダメージ倍率 */
+const GUARD_MASTER_DAMAGE_TAKEN_MULTIPLIER = 0.75;
+/** パッシブ thorns の反射ダメージ係数(受けたダメージに掛ける) */
+const THORNS_DAMAGE_RATIO = 0.2;
+/** パッシブ special-master の必殺技発動率 */
+const SPECIAL_MASTER_TRIGGER_CHANCE = 0.65;
+/** パッシブ mp-saver の必殺技消費MP倍率 */
+const MP_SAVER_COST_FACTOR = 0.5;
+/** パッシブ giant-killer の与ダメージ倍率(相手の最大HPが自分より多いとき) */
+const GIANT_KILLER_DAMAGE_MULTIPLIER = 1.3;
+/** パッシブ overheal の回復量倍率 */
+const OVERHEAL_MULTIPLIER = 1.5;
+/** パッシブ cleanse がステータス異常を解除する確率(自分の行動後に判定) */
+const CLEANSE_CHANCE = 0.5;
 
 /** ステージ特殊イベントの発動判定率(ラウンド開始時ごと) */
 const STAGE_EVENT_CHANCE = 0.25;
@@ -274,6 +288,40 @@ function effectiveDefense(state: CombatantState): number {
 }
 
 /**
+ * ダメージの最終倍率(ステージ特性・guard-master・giant-killer)をまとめて返します。
+ * 通常攻撃・counter・special-attack・special-ailment・drain・all-attack の
+ * 直接ダメージにのみ適用し、スリップダメージやステージイベントdamage、
+ * こんらんの自傷には適用しません(ステージ damageTakenMul と同じ適用範囲です)。
+ * - guard-master: 対象(target)が持つと被ダメージが0.75倍になる
+ * - giant-killer: 行動者(actor)が持ち、対象の最大HPが自分より多いと1.3倍になる
+ */
+function damageMultiplierFor(
+  actor: CombatantState,
+  target: CombatantState,
+  modifiers: StageModifiers,
+): number {
+  let multiplier = modifiers.damageTakenMul;
+  if (hasPassive(target, "guard-master")) {
+    multiplier *= GUARD_MASTER_DAMAGE_TAKEN_MULTIPLIER;
+  }
+  if (hasPassive(actor, "giant-killer") && target.character.hp > actor.character.hp) {
+    multiplier *= GIANT_KILLER_DAMAGE_MULTIPLIER;
+  }
+  return multiplier;
+}
+
+/** パッシブ mp-saver を反映した必殺技の実効消費MPを返します。 */
+function effectiveMpCost(actor: CombatantState): number {
+  const cost = actor.character.specialMove.mpCost;
+  return hasPassive(actor, "mp-saver") ? Math.round(cost * MP_SAVER_COST_FACTOR) : cost;
+}
+
+/** パッシブ overheal を反映した回復量の倍率を返します。 */
+function healMultiplierFor(state: CombatantState): number {
+  return hasPassive(state, "overheal") ? OVERHEAL_MULTIPLIER : 1;
+}
+
+/**
  * 現在の状況で必殺技が使用可能かを返します(乱数は消費しません)。
  * MPが足りることに加え、タイプごとの条件を満たす必要があります:
  * - attack: 生存する相手がいれば使用可能
@@ -283,6 +331,7 @@ function effectiveDefense(state: CombatantState): number {
  * - drain: 生存する相手がいれば使用可能
  * - debuff: 生存する相手がいて、このバトルでまだよわらせる技を使っていない
  * - all-attack: 生存する相手がいれば使用可能
+ * MP判定はパッシブ mp-saver を反映した実効消費MP(effectiveMpCost)で行います。
  */
 function isSpecialUsable(
   actor: CombatantState,
@@ -290,7 +339,7 @@ function isSpecialUsable(
   ailmentTargets: readonly CombatantState[],
 ): boolean {
   const move = actor.character.specialMove;
-  if (actor.mp < move.mpCost) {
+  if (actor.mp < effectiveMpCost(actor)) {
     return false;
   }
   switch (move.type) {
@@ -542,7 +591,7 @@ function simulateMultiTeamBattle(
         case "heal": {
           const healed = Math.min(
             c.character.hp - c.hp,
-            Math.round(c.character.hp * STAGE_EVENT_HEAL_RATIO),
+            Math.round(c.character.hp * STAGE_EVENT_HEAL_RATIO * healMultiplierFor(c)),
           );
           if (healed <= 0) {
             continue;
@@ -677,9 +726,13 @@ function simulateMultiTeamBattle(
     const ailmentTargets = livingOpponents.filter(
       (o) => o.ailment === null && !hasPassive(o, "ailment-guard"),
     );
+    // special-master 持ちは必殺技の発動率が上がります
+    const specialTriggerChance = hasPassive(actor, "special-master")
+      ? SPECIAL_MASTER_TRIGGER_CHANCE
+      : SPECIAL_TRIGGER_CHANCE;
     if (
       isSpecialUsable(actor, livingOpponents, ailmentTargets) &&
-      rng() < SPECIAL_TRIGGER_CHANCE
+      rng() < specialTriggerChance
     ) {
       if (
         performSpecial(turn, actor, livingOpponents, ailmentTargets) ===
@@ -693,11 +746,14 @@ function simulateMultiTeamBattle(
     // --- 3. 通常攻撃 ---
     const target = pickTarget(livingOpponents);
     // 対象が evasion 持ち、または行動者がくらやみの場合はミス率が上がります
-    // (高いほうを採用します。乱数の消費順は不変)
-    const missChance = Math.max(
-      hasPassive(target, "evasion") ? EVASION_MISS_CHANCE : MISS_CHANCE,
-      actor.ailment === "blind" ? BLIND_MISS_CHANCE : MISS_CHANCE,
-    );
+    // (高いほうを採用します)。行動者が sure-hit 持ちの場合はそれらを無視して
+    // 必ず命中します(乱数の消費順は不変)
+    const missChance = hasPassive(actor, "sure-hit")
+      ? 0
+      : Math.max(
+          hasPassive(target, "evasion") ? EVASION_MISS_CHANCE : MISS_CHANCE,
+          actor.ailment === "blind" ? BLIND_MISS_CHANCE : MISS_CHANCE,
+        );
     if (rng() < missChance) {
       emit(turn, actor, target, { type: "miss" });
       return endOfAction(turn, actor);
@@ -706,15 +762,18 @@ function simulateMultiTeamBattle(
       (actor.character.luck / CRIT_LUCK_DIVISOR) *
         (hasPassive(actor, "crit-master") ? CRIT_MASTER_MULTIPLIER : 1) +
       modifiers.critRateAdd;
-    const critical = rng() < critRate;
+    // crit-guard 持ちが対象の場合、判定の乱数は消費しつつ結果を無効化します
+    const critical = rng() < critRate && !hasPassive(target, "crit-guard");
     const variance = NORMAL_VARIANCE_BASE + rng() * NORMAL_VARIANCE_RANGE;
+    // pierce 持ちは通常攻撃で相手の防御力を無視します
+    const defenseFactor = hasPassive(actor, "pierce") ? 0 : NORMAL_DEFENSE_FACTOR;
     let raw =
       effectiveAttack(actor, modifiers) * variance -
-      effectiveDefense(target) * NORMAL_DEFENSE_FACTOR;
+      effectiveDefense(target) * defenseFactor;
     if (critical) {
       raw *= CRIT_MULTIPLIER;
     }
-    const damage = toDamage(raw * modifiers.damageTakenMul);
+    const damage = toDamage(raw * damageMultiplierFor(actor, target, modifiers));
     const hit = applyDamage(target, damage);
     emit(turn, actor, target, { type: "attack", critical, damage });
     if (hit.endured) {
@@ -725,7 +784,7 @@ function simulateMultiTeamBattle(
     if (hasPassive(actor, "life-steal")) {
       const healed = Math.min(
         actor.character.hp - actor.hp,
-        Math.round(damage * LIFE_STEAL_RATIO),
+        Math.round(damage * LIFE_STEAL_RATIO * healMultiplierFor(actor)),
       );
       if (healed > 0) {
         actor.hp += healed;
@@ -742,7 +801,9 @@ function simulateMultiTeamBattle(
     // --- 4. 反撃(パッシブ counter、通常攻撃の命中に対してのみ) ---
     if (hasPassive(target, "counter") && rng() < COUNTER_CHANCE) {
       const counterDamage = toDamage(
-        effectiveAttack(target, modifiers) * COUNTER_DAMAGE_FACTOR * modifiers.damageTakenMul,
+        effectiveAttack(target, modifiers) *
+          COUNTER_DAMAGE_FACTOR *
+          damageMultiplierFor(target, actor, modifiers),
       );
       const counterHit = applyDamage(actor, counterDamage);
       emit(turn, target, actor, { type: "counter", damage: counterDamage });
@@ -751,6 +812,20 @@ function simulateMultiTeamBattle(
       }
       if (counterHit.knockedOut) {
         // 反撃で倒れたキャラクターは行動後効果(スリップダメージ等)を行いません
+        return countLivingTeams() <= 1 ? "finished" : "continue";
+      }
+    }
+
+    // --- 4b. とげ(パッシブ thorns、通常攻撃の命中に対して確率判定なしで必ず反射) ---
+    if (hasPassive(target, "thorns")) {
+      const thornsDamage = toDamage(damage * THORNS_DAMAGE_RATIO);
+      const thornsHit = applyDamage(actor, thornsDamage);
+      emit(turn, target, actor, { type: "thorns", damage: thornsDamage });
+      if (thornsHit.endured) {
+        emit(turn, actor, actor, { type: "endure" });
+      }
+      if (thornsHit.knockedOut) {
+        // 反射で倒れたキャラクターは行動後効果(スリップダメージ等)を行いません
         return countLivingTeams() <= 1 ? "finished" : "continue";
       }
     }
@@ -769,7 +844,7 @@ function simulateMultiTeamBattle(
     ailmentTargets: readonly CombatantState[],
   ): "continue" | "finished" {
     const move = actor.character.specialMove;
-    actor.mp -= move.mpCost;
+    actor.mp -= effectiveMpCost(actor);
 
     switch (move.type) {
       case "attack": {
@@ -779,7 +854,7 @@ function simulateMultiTeamBattle(
           (move.power * variance +
             effectiveAttack(actor, modifiers) * SPECIAL_ATTACK_BONUS -
             effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
-            modifiers.damageTakenMul,
+            damageMultiplierFor(actor, target, modifiers),
         );
         const hit = applyDamage(target, damage);
         emit(turn, actor, target, {
@@ -798,7 +873,7 @@ function simulateMultiTeamBattle(
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const healed = Math.min(
           actor.character.hp - actor.hp,
-          Math.max(1, Math.round(move.power * HEAL_POWER_FACTOR * variance)),
+          Math.max(1, Math.round(move.power * HEAL_POWER_FACTOR * variance * healMultiplierFor(actor))),
         );
         actor.hp += healed;
         emit(turn, actor, actor, {
@@ -819,7 +894,8 @@ function simulateMultiTeamBattle(
         const target = pickTarget(ailmentTargets);
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const damage = toDamage(
-          move.power * AILMENT_MOVE_POWER_FACTOR * variance * modifiers.damageTakenMul,
+          move.power * AILMENT_MOVE_POWER_FACTOR * variance *
+            damageMultiplierFor(actor, target, modifiers),
         );
         const hit = applyDamage(target, damage);
         if (!hit.knockedOut) {
@@ -857,14 +933,14 @@ function simulateMultiTeamBattle(
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const damage = toDamage(
           (move.power * variance - effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
-            modifiers.damageTakenMul,
+            damageMultiplierFor(actor, target, modifiers),
         );
         const hit = applyDamage(target, damage);
         // 与えたダメージの一部を自分のHPへ回復します(life-steal と同様、
         // とどめの一撃でも回復してからバトル終了の判定に進みます)
         const healed = Math.min(
           actor.character.hp - actor.hp,
-          Math.round(damage * DRAIN_HEAL_RATIO),
+          Math.round(damage * DRAIN_HEAL_RATIO * healMultiplierFor(actor)),
         );
         actor.hp += healed;
         emit(turn, actor, target, {
@@ -903,7 +979,7 @@ function simulateMultiTeamBattle(
           const damage = toDamage(
             (move.power * ALL_ATTACK_POWER_FACTOR * variance -
               effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
-              modifiers.damageTakenMul,
+              damageMultiplierFor(actor, target, modifiers),
           );
           const hit = applyDamage(target, damage);
           emit(turn, actor, target, {
@@ -952,12 +1028,19 @@ function simulateMultiTeamBattle(
     if (hasPassive(actor, "regenerate")) {
       const healed = Math.min(
         actor.character.hp - actor.hp,
-        Math.round(actor.character.hp * REGENERATE_RATIO),
+        Math.round(actor.character.hp * REGENERATE_RATIO * healMultiplierFor(actor)),
       );
       if (healed > 0) {
         actor.hp += healed;
         emit(turn, actor, actor, { type: "regenerate", healed });
       }
+    }
+    // cleanse: 罹患中のステータス異常を一定確率で解除します
+    // (乱数は cleanse 持ちが罹患しているときのみ消費します)
+    if (actor.ailment !== null && hasPassive(actor, "cleanse") && rng() < CLEANSE_CHANCE) {
+      const cured = actor.ailment;
+      actor.ailment = null;
+      emit(turn, actor, actor, { type: "ailment-cure", ailment: cured });
     }
     // のろい罹患中は行動後のMP回復が発生しません(乱数消費なし)
     const regen =

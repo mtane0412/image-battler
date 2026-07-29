@@ -11,7 +11,7 @@ import { PASSIVE_SKILL_IDS } from "../types";
 import { sampleWithoutReplacement } from "./sampling";
 
 /** 1回の生成でモデルに提示するパッシブスキル候補の数です。 */
-export const PASSIVE_CANDIDATE_COUNT = 3;
+export const PASSIVE_CANDIDATE_COUNT = 4;
 
 /**
  * 全パッシブスキルから候補を重複なしで無作為に抽選します。
