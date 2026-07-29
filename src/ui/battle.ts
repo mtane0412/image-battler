@@ -1043,6 +1043,9 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
         break;
       case "special-attack":
       case "special-ailment":
+      case "special-drain":
+      case "special-debuff":
+      case "special-all-attack":
         lunge(actor.root, target.root);
         target.root.classList.add("flash");
         break;
@@ -1094,7 +1097,10 @@ function isSpecialMoveEvent(event: BattleEvent): boolean {
     event.type === "special-attack" ||
     event.type === "special-heal" ||
     event.type === "special-ailment" ||
-    event.type === "special-buff"
+    event.type === "special-buff" ||
+    event.type === "special-drain" ||
+    event.type === "special-debuff" ||
+    event.type === "special-all-attack"
   );
 }
 
@@ -1140,6 +1146,23 @@ function narrationParamsFor(
       };
     case "special-buff":
       return { ...base, type: "special-buff", moveName: event.moveName };
+    case "special-drain":
+      return {
+        ...base,
+        type: "special-drain",
+        moveName: event.moveName,
+        damage: event.damage,
+        healed: event.healed,
+      };
+    case "special-debuff":
+      return { ...base, type: "special-debuff", moveName: event.moveName };
+    case "special-all-attack":
+      return {
+        ...base,
+        type: "special-all-attack",
+        moveName: event.moveName,
+        damage: event.damage,
+      };
     case "counter": {
       // counter イベントはパッシブ保持者しか起こさないため、欠落はデータ不正です
       const passive = actor.character.passive;
@@ -1187,6 +1210,9 @@ function logKindFor(event: BattleEvent): "system" | "special" {
     case "special-heal":
     case "special-ailment":
     case "special-buff":
+    case "special-drain":
+    case "special-debuff":
+    case "special-all-attack":
       return "special";
     case "stage-damage":
     case "stage-heal":

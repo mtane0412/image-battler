@@ -7,8 +7,9 @@
  * 例外として、異常タイプ以外の必殺技の ailment フィールドは使用しない値のため
  * null に正規化します(補正ではなく無関係フィールドの破棄です)。
  *
- * パッシブスキルのidは、抽選済みの候補リスト(ai/passives.ts で抽選)だけを
- * スキーマ・検証の両方で許可します。候補外のidは Fail-Fast で拒否します。
+ * パッシブスキル・必殺技タイプ・状態異常のidは、抽選済みの候補リスト
+ * (ai/passives.ts・ai/moves.ts で抽選)だけをスキーマ・検証の両方で許可します。
+ * 候補外のidは Fail-Fast で拒否します。
  */
 import type {
   AilmentType,
@@ -16,12 +17,12 @@ import type {
   GeneratedStats,
   PassiveSkill,
   PassiveSkillId,
+  SpecialMoveType,
   StageEvent,
   StageEventId,
   StageTrait,
   StageTraitId,
 } from "../types";
-import { AILMENT_TYPES, SPECIAL_MOVE_TYPES } from "../types";
 
 /** モデル出力の検証に失敗したときに投げるエラーです。 */
 export class CharacterParseError extends Error {
@@ -51,12 +52,6 @@ export const STAT_RANGES = {
 } as const;
 
 /**
- * 必殺技の ailment フィールドに指定できる値です。
- * 異常タイプ以外の技では "none" を指定させます。
- */
-const AILMENT_CHOICES = ["none", ...AILMENT_TYPES] as const;
-
-/**
  * 自由記述フィールドの最大文字数です(JSON Schema の maxLength に使用)。
  *
  * Gemini Nano は小型モデルのため、説明文が長く暴走すると出力トークン上限で
@@ -75,16 +70,26 @@ export const TEXT_LIMITS = {
 
 /**
  * Prompt API の responseConstraint に渡す JSON Schema を組み立てます。
- * モデル出力をこの構造に制約します。パッシブスキルのidは抽選済みの
- * 候補(passiveCandidates)だけを enum に許可します。
- * @throws Error 候補が空の場合(enumが空のスキーマは無意味なため Fail-Fast)
+ * モデル出力をこの構造に制約します。パッシブスキルのidは抽選済みの候補
+ * (passiveCandidates)、必殺技タイプは抽選済みの候補(moveTypeCandidates)、
+ * ailment は抽選済みの候補(ailmentCandidates)+"none" だけを enum に許可します。
+ * @throws Error いずれかの候補が空の場合(enumが空のスキーマは無意味なため Fail-Fast)
  */
 export function buildCharacterGenerationSchema(
   passiveCandidates: readonly PassiveSkillId[],
+  moveTypeCandidates: readonly SpecialMoveType[],
+  ailmentCandidates: readonly AilmentType[],
 ) {
   if (passiveCandidates.length === 0) {
     throw new Error("パッシブスキルの候補が空です(抽選結果を渡してください)");
   }
+  if (moveTypeCandidates.length === 0) {
+    throw new Error("必殺技タイプの候補が空です(抽選結果を渡してください)");
+  }
+  if (ailmentCandidates.length === 0) {
+    throw new Error("状態異常の候補が空です(抽選結果を渡してください)");
+  }
+  const ailmentChoices = ["none", ...ailmentCandidates] as const;
   return {
     type: "object",
     required: [
@@ -115,7 +120,7 @@ export function buildCharacterGenerationSchema(
         additionalProperties: false,
         properties: {
           name: { type: "string", maxLength: TEXT_LIMITS.name },
-          type: { type: "string", enum: SPECIAL_MOVE_TYPES },
+          type: { type: "string", enum: moveTypeCandidates },
           power: {
             type: "integer",
             minimum: STAT_RANGES.specialPower.min,
@@ -126,7 +131,7 @@ export function buildCharacterGenerationSchema(
             minimum: STAT_RANGES.specialMpCost.min,
             maximum: STAT_RANGES.specialMpCost.max,
           },
-          ailment: { type: "string", enum: AILMENT_CHOICES },
+          ailment: { type: "string", enum: ailmentChoices },
           description: { type: "string", maxLength: TEXT_LIMITS.effectDescription },
         },
       },
@@ -194,11 +199,15 @@ export function buildStageGenerationSchema(
 /**
  * モデル出力のJSON文字列を検証し、GeneratedStats として返します。
  * @param allowedPassiveIds 抽選済みのパッシブ候補。候補外のidは拒否します
+ * @param allowedMoveTypeIds 抽選済みの必殺技タイプ候補。候補外のtypeは拒否します
+ * @param allowedAilmentIds 抽選済みの状態異常候補。候補外のailmentは拒否します
  * @throws CharacterParseError 出力がJSONでない・範囲外・欠落している場合
  */
 export function parseGeneratedStats(
   raw: string,
   allowedPassiveIds: readonly PassiveSkillId[],
+  allowedMoveTypeIds: readonly SpecialMoveType[],
+  allowedAilmentIds: readonly AilmentType[],
 ): GeneratedStats {
   const obj = parseModelOutputObject(raw);
 
@@ -211,7 +220,7 @@ export function parseGeneratedStats(
     luck: readInt(obj, "luck", STAT_RANGES.luck),
     title: readText(obj, "title"),
     description: readText(obj, "description"),
-    specialMove: readSpecialMove(obj),
+    specialMove: readSpecialMove(obj, allowedMoveTypeIds, allowedAilmentIds),
     passive: readPassive(obj, allowedPassiveIds),
   } satisfies GeneratedStats;
   return stats;
@@ -380,11 +389,20 @@ function readObject(
   return value as Record<string, unknown>;
 }
 
-/** specialMove オブジェクトを検証付きで読み取ります。 */
-function readSpecialMove(obj: Record<string, unknown>): GeneratedStats["specialMove"] {
+/**
+ * specialMove オブジェクトを検証付きで読み取ります。
+ * type は抽選済みの候補(allowedMoveTypeIds)、ailment は抽選済みの候補
+ * (allowedAilmentIds)+"none" に含まれる値だけを許可します。
+ */
+function readSpecialMove(
+  obj: Record<string, unknown>,
+  allowedMoveTypeIds: readonly SpecialMoveType[],
+  allowedAilmentIds: readonly AilmentType[],
+): GeneratedStats["specialMove"] {
   const move = readObject(obj, "specialMove");
-  const type = readChoice(move, "type", SPECIAL_MOVE_TYPES);
-  const ailmentChoice = readChoice(move, "ailment", AILMENT_CHOICES);
+  const type = readChoice(move, "type", allowedMoveTypeIds);
+  const ailmentChoices = ["none", ...allowedAilmentIds] as const;
+  const ailmentChoice = readChoice(move, "ailment", ailmentChoices);
 
   // 異常タイプの技には必ず具体的な状態異常が必要です(Fail-Fast)。
   // それ以外のタイプでは ailment を使用しないため null に正規化します
@@ -392,7 +410,7 @@ function readSpecialMove(obj: Record<string, unknown>): GeneratedStats["specialM
   if (type === "ailment") {
     if (ailmentChoice === "none") {
       throw new CharacterParseError(
-        "異常タイプの必殺技に ailment(poison/paralysis/burn/freeze)が指定されていません",
+        "異常タイプの必殺技に ailment(候補の状態異常)が指定されていません",
       );
     }
     ailment = ailmentChoice;
