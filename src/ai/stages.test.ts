@@ -12,7 +12,7 @@ import {
 import { sequenceRng } from "../testing/fixtures";
 
 describe("sampleStageCandidates", () => {
-  it("特性候補・イベント候補をそれぞれ2件返し、すべて定義済みのidで重複がない", () => {
+  it("特性候補・イベント候補をそれぞれ3件返し、すべて定義済みのidで重複がない", () => {
     const candidates = sampleStageCandidates();
     expect(candidates.traits).toHaveLength(STAGE_TRAIT_CANDIDATE_COUNT);
     expect(candidates.events).toHaveLength(STAGE_EVENT_CANDIDATE_COUNT);
@@ -27,16 +27,22 @@ describe("sampleStageCandidates", () => {
   });
 
   it("乱数0を注入すると各一覧の先頭から順に選ばれる(特性→イベントの順に消費、決定論的)", () => {
-    const candidates = sampleStageCandidates(sequenceRng([0, 0, 0, 0]));
-    expect(candidates.traits).toEqual(["attack-up", "damage-cut"]);
-    expect(candidates.events).toEqual(["damage", "heal"]);
+    const candidates = sampleStageCandidates(sequenceRng([0, 0, 0, 0, 0, 0]));
+    expect(candidates.traits).toEqual(["attack-up", "damage-cut", "crit-up"]);
+    expect(candidates.events).toEqual(["damage", "heal", "mana-restore"]);
   });
 
   it("乱数の値によって選ばれる候補が変わる", () => {
     // 0.99 では毎回、残っている候補の末尾が選ばれる
-    const candidates = sampleStageCandidates(sequenceRng([0.99, 0.99, 0.99, 0.99]));
-    expect(candidates.traits).toEqual(["mp-regen-up", "crit-up"]);
-    expect(candidates.events).toEqual(["ailment", "mana-restore"]);
+    const candidates = sampleStageCandidates(
+      sequenceRng([0.99, 0.99, 0.99, 0.99, 0.99, 0.99]),
+    );
+    expect(candidates.traits).toEqual([
+      "crit-damage-up",
+      "special-boost",
+      "damage-up",
+    ]);
+    expect(candidates.events).toEqual(["cleanse", "defense-down", "attack-up"]);
   });
 
   it("乱数が範囲外([0,1)以外)の値を返す場合はエラーになる(Fail-Fast)", () => {

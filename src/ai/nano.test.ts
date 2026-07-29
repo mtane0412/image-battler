@@ -255,12 +255,13 @@ describe("generateStageStats", () => {
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });
 
-    // 乱数0を注入すると特性候補は[attack-up, damage-cut]、イベント候補は[damage, heal]になる
+    // 乱数0を注入すると特性候補は[attack-up, damage-cut, crit-up]、
+    // イベント候補は[damage, heal, mana-restore]になる
     const stage = await generateStageStats(
       session,
       "灼熱の闘技場",
       image,
-      sequenceRng([0, 0, 0, 0]),
+      sequenceRng([0, 0, 0, 0, 0, 0]),
     );
 
     expect(stage.title).toBe("灼熱の闘技場");
@@ -285,7 +286,7 @@ describe("generateStageStats", () => {
       session,
       "灼熱の闘技場",
       image,
-      sequenceRng([0, 0, 0, 0]),
+      sequenceRng([0, 0, 0, 0, 0, 0]),
     );
 
     const [messages, options] = prompt.mock.calls[0] as [
@@ -304,12 +305,14 @@ describe("generateStageStats", () => {
     expect(constraint.properties.trait.properties.id.enum).toEqual([
       "attack-up",
       "damage-cut",
+      "crit-up",
     ]);
   });
 
   it("候補にない特性idをモデルが返した場合はエラーになる(Fail-Fast)", async () => {
-    // 乱数0.99の抽選候補は特性[mp-regen-up, crit-up]、イベント[ailment, mana-restore]。
-    // モデル出力(attack-up)は候補外のため拒否される
+    // 乱数0.99の抽選候補は特性[crit-damage-up, special-boost, damage-up]、
+    // イベント[cleanse, defense-down, attack-up]。
+    // モデル出力(attack-up)は特性としては候補外のため拒否される
     const prompt = vi.fn().mockResolvedValue(validStageJson());
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });
@@ -319,7 +322,7 @@ describe("generateStageStats", () => {
         session,
         "灼熱の闘技場",
         image,
-        sequenceRng([0.99, 0.99, 0.99, 0.99]),
+        sequenceRng([0.99, 0.99, 0.99, 0.99, 0.99, 0.99]),
       ),
     ).rejects.toThrow(/id/);
   });
