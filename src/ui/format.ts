@@ -36,6 +36,14 @@ export function describeEvent(
       ].join("");
     case "special-buff":
       return `${actor}の ひっさつわざ「${event.moveName}」! こうげきと ぼうぎょが ぐーんと あがった!`;
+    case "special-drain":
+      return `${actor}の ひっさつわざ「${event.moveName}」! ${target}に ${event.damage}の ダメージ! ${actor}は HPを ${event.healed} すいとった!`;
+    case "special-debuff":
+      return `${actor}の ひっさつわざ「${event.moveName}」! ${target}の こうげきと ぼうぎょが がくっと さがった!`;
+    case "special-all-attack":
+      return event.first
+        ? `${actor}の ひっさつわざ「${event.moveName}」! みんなに ${event.damage}の ダメージ!`
+        : `${target}に ${event.damage}の ダメージ!`;
     case "ailment-damage":
       return event.ailment === "poison"
         ? `${actor}は どくに むしばまれている! ${event.damage}の ダメージ!`

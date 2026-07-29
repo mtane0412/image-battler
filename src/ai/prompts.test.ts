@@ -27,20 +27,54 @@ import { ACT_NARRATION_TONES, ENDING_RANK_TONES } from "../story/plan";
 
 describe("buildCharacterPrompt", () => {
   it("キャラクター名が含まれる", () => {
-    const prompt = buildCharacterPrompt("もふ吉", ["crit-master", "endure", "counter"]);
+    const prompt = buildCharacterPrompt(
+      "もふ吉",
+      ["crit-master", "endure", "counter"],
+      ["attack", "heal", "ailment"],
+      ["poison", "paralysis", "burn"],
+    );
     expect(prompt).toContain("もふ吉");
   });
 
-  it("必殺技タイプの選択肢が含まれる", () => {
-    const prompt = buildCharacterPrompt("もふ吉", ["crit-master", "endure", "counter"]);
-    // 必殺技の4タイプ
-    for (const type of ["attack", "heal", "ailment", "buff"]) {
+  it("必殺技タイプは渡した候補だけが効果の要約付きで含まれる", () => {
+    const prompt = buildCharacterPrompt(
+      "もふ吉",
+      ["crit-master", "endure", "counter"],
+      ["drain", "debuff", "all-attack"],
+      ["poison", "paralysis", "burn"],
+    );
+    for (const type of ["drain", "debuff", "all-attack"]) {
       expect(prompt).toContain(type);
     }
+    // 効果の要約(SPECIAL_MOVE_TYPE_SUMMARIES)も一緒に提示される
+    expect(prompt).toContain("ダメージを与えつつ一部を吸収して回復する");
+    // 候補にないタイプは提示されない
+    expect(prompt).not.toContain("type: attack(");
+    expect(prompt).not.toContain("buff(自分の攻守を上げる)");
+  });
+
+  it("状態異常は渡した候補だけがラベル付きで含まれる", () => {
+    const prompt = buildCharacterPrompt(
+      "もふ吉",
+      ["crit-master", "endure", "counter"],
+      ["attack", "heal", "ailment"],
+      ["curse", "blind", "weaken"],
+    );
+    for (const ailment of ["curse", "blind", "weaken"]) {
+      expect(prompt).toContain(ailment);
+    }
+    expect(prompt).toContain("のろい");
+    // 候補にない状態異常は提示されない
+    expect(prompt).not.toContain("poison(どく)");
   });
 
   it("パッシブスキルは渡した候補だけが効果の要約付きで含まれる", () => {
-    const prompt = buildCharacterPrompt("もふ吉", ["life-steal", "evasion", "berserk"]);
+    const prompt = buildCharacterPrompt(
+      "もふ吉",
+      ["life-steal", "evasion", "berserk"],
+      ["attack", "heal", "ailment"],
+      ["poison", "paralysis", "burn"],
+    );
     for (const id of ["life-steal", "evasion", "berserk"]) {
       expect(prompt).toContain(id);
     }

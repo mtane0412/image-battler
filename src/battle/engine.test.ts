@@ -514,6 +514,136 @@ describe("simulateBattle: 自己強化タイプの必殺技", () => {
   });
 });
 
+describe("simulateBattle: 追加の必殺技タイプ(きゅうしゅう/よわらせる/ぜんたい)", () => {
+  it("きゅうしゅうは相手にダメージを与えつつ、そのダメージの半分だけ自分のHPを回復する", () => {
+    // aは遅く先にbの通常攻撃(32ダメージ)を受けてHP68になってから、きゅうしゅう技を使う
+    const きゅうしゅう役 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 30,
+      specialMove: makeSpecialMove({ name: "すいけつのきば", type: "drain", power: 50, mpCost: 30 }),
+    });
+    const 受け手 = makeCharacter({
+      id: "b",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 90,
+    });
+    // 1手目: bの通常攻撃32ダメージ(aのHP 100→68)
+    // 2手目: aのきゅうしゅう技。damage = round(50*1.0 - 20*0.2) = 46(bのHP 100→54)
+    //         回復 = round(46*0.5) = 23(aのHP 68→91)
+    const result = simulateBattle(
+      きゅうしゅう役,
+      受け手,
+      sequenceRng([0.5, 0.5, 0.5, 0.1, 0.5]),
+    );
+    expect(result.events[1]).toMatchObject({
+      type: "special-drain",
+      moveName: "すいけつのきば",
+      damage: 46,
+      healed: 23,
+      actorId: "a",
+      targetId: "b",
+      after: { a: { hp: 91 }, b: { hp: 54 } },
+    });
+  });
+
+  it("よわらせるは相手のこうげき・ぼうぎょを下げる(1バトル1回)", () => {
+    const 弱体役 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "よわきのじゅもん", type: "debuff", power: 50, mpCost: 30 }),
+    });
+    const 対象 = makeCharacter({
+      id: "b",
+      hp: 150,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+    });
+    // 1手目: aのよわらせる技。attackLoss=round(50*0.4)=20、defenseLoss=round(50*0.3)=15
+    //         (bのこうげき40→20、ぼうぎょ20→5になる)
+    // 2手目: bの通常攻撃。こうげきが下がっているため 20*1.0 - 20*0.4 = 12ダメージ(aのHP 100→88)
+    // 3手目: よわらせるは使用済みのため通常攻撃。ぼうぎょが下がったbには
+    //         40*1.0 - 5*0.4 = 38ダメージ(bのHP 150→112)
+    const result = simulateBattle(
+      弱体役,
+      対象,
+      sequenceRng([0.1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-debuff",
+      moveName: "よわきのじゅもん",
+      attackLoss: 20,
+      defenseLoss: 15,
+      actorId: "a",
+      targetId: "b",
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "attack",
+      actorId: "b",
+      targetId: "a",
+      damage: 12,
+      after: { a: { hp: 88 } },
+    });
+    expect(result.events[2]).toMatchObject({
+      type: "attack",
+      actorId: "a",
+      targetId: "b",
+      damage: 38,
+      after: { b: { hp: 112 } },
+    });
+  });
+
+  it("ぜんたいは生存する相手全員に低威力のダメージを与え、先頭の対象だけfirstがtrueになる", () => {
+    const 全体役 = makeCharacter({
+      id: "a",
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "だいちわり", type: "all-attack", power: 50, mpCost: 30 }),
+    });
+    const 対象1 = makeCharacter({ id: "b", hp: 100, defense: 20, mp: 0, speed: 30 });
+    const 対象2 = makeCharacter({ id: "c", hp: 100, defense: 10, mp: 0, speed: 20 });
+    // 1手目: aのぜんたい技。variance = 0.9+0.5*0.2 = 1.0(1回だけ消費し全対象で共用)
+    //   b: round(50*0.6*1.0 - 20*0.2) = round(30-4) = 26ダメージ(bのHP 100→74、first:true)
+    //   c: round(50*0.6*1.0 - 10*0.2) = round(30-2) = 28ダメージ(cのHP 100→72、first:false)
+    const result = simulateRoyale(
+      [全体役, 対象1, 対象2],
+      sequenceRng([0.1, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-all-attack",
+      moveName: "だいちわり",
+      damage: 26,
+      first: true,
+      actorId: "a",
+      targetId: "b",
+      after: { b: { hp: 74 } },
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "special-all-attack",
+      moveName: "だいちわり",
+      damage: 28,
+      first: false,
+      actorId: "a",
+      targetId: "c",
+      after: { c: { hp: 72 } },
+    });
+  });
+});
+
 describe("simulateBattle: パッシブスキル", () => {
   it("crit-master はクリティカル率が2倍になる", () => {
     // 運100 → 通常25%だが crit-master で50%。クリティカル判定0.45は
