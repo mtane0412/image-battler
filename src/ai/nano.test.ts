@@ -92,12 +92,14 @@ describe("generateCharacterStats", () => {
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });
 
-    // 乱数0を注入すると候補は [crit-master, ailment-guard, endure] になる
+    // 乱数0を注入すると、パッシブ候補は [crit-master, ailment-guard, endure]、
+    // 必殺技タイプ候補は [attack, heal, ailment]、状態異常候補は
+    // [poison, paralysis, burn] になる(validStatsJson の type="attack" を含む)
     const stats = await generateCharacterStats(
       session,
       "もふ吉",
       image,
-      sequenceRng([0, 0, 0]),
+      sequenceRng([0, 0, 0, 0, 0, 0, 0, 0, 0]),
     );
 
     expect(stats.title).toBe("深淵の眠り猫");
@@ -117,7 +119,12 @@ describe("generateCharacterStats", () => {
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });
 
-    await generateCharacterStats(session, "もふ吉", image, sequenceRng([0, 0, 0]));
+    await generateCharacterStats(
+      session,
+      "もふ吉",
+      image,
+      sequenceRng([0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    );
 
     const [messages, options] = prompt.mock.calls[0] as [
       LanguageModelMessage[],
@@ -140,15 +147,63 @@ describe("generateCharacterStats", () => {
     ]);
   });
 
+  it("抽選した必殺技タイプ候補・状態異常候補がプロンプトとresponseConstraintの両方に反映される", async () => {
+    const prompt = vi.fn().mockResolvedValue(validStatsJson());
+    const session = { prompt } as unknown as LanguageModelSession;
+    const image = new Blob(["dummy"], { type: "image/jpeg" });
+
+    await generateCharacterStats(
+      session,
+      "もふ吉",
+      image,
+      sequenceRng([0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    );
+
+    const [messages, options] = prompt.mock.calls[0] as [
+      LanguageModelMessage[],
+      LanguageModelPromptOptions,
+    ];
+    const promptText = JSON.stringify(messages);
+    expect(promptText).toContain("attack");
+    expect(promptText).toContain("heal");
+    expect(promptText).not.toContain("all-attack");
+    expect(promptText).not.toContain("debuff");
+    const constraint = options.responseConstraint as {
+      properties: {
+        specialMove: {
+          properties: { type: { enum: string[] }; ailment: { enum: string[] } };
+        };
+      };
+    };
+    expect(constraint.properties.specialMove.properties.type.enum).toEqual([
+      "attack",
+      "heal",
+      "ailment",
+    ]);
+    expect(constraint.properties.specialMove.properties.ailment.enum).toEqual([
+      "none",
+      "poison",
+      "paralysis",
+      "burn",
+    ]);
+  });
+
   it("候補にないパッシブidをモデルが返した場合はエラーになる(Fail-Fast)", async () => {
     // 乱数0.99の抽選候補は [first-strike, evasion, berserk]。
-    // モデル出力(crit-master)は候補外のため拒否される
+    // モデル出力(crit-master)は候補外のため拒否される。以降の必殺技タイプ・
+    // 状態異常の抽選は乱数0で行い、validStatsJson の type="attack" が
+    // 候補に含まれるようにして、この検証が確実にパッシブidの拒否だと分かるようにする
     const prompt = vi.fn().mockResolvedValue(validStatsJson());
     const session = { prompt } as unknown as LanguageModelSession;
     const image = new Blob(["dummy"], { type: "image/jpeg" });
 
     await expect(
-      generateCharacterStats(session, "もふ吉", image, sequenceRng([0.99, 0.99, 0.99])),
+      generateCharacterStats(
+        session,
+        "もふ吉",
+        image,
+        sequenceRng([0.99, 0.99, 0.99, 0, 0, 0, 0, 0, 0]),
+      ),
     ).rejects.toThrow(/id/);
   });
 });

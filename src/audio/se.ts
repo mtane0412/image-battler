@@ -187,6 +187,9 @@ export function seKeyForEvent(
       return "miss";
     case "special-attack":
     case "special-buff":
+    case "special-drain":
+    case "special-debuff":
+    case "special-all-attack":
       return specialSeKey;
     case "special-heal":
       return "special-holy";

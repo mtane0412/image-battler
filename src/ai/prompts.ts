@@ -3,10 +3,17 @@
  * すべて日本語で生成させます。Gemini Nano は小型モデルのため、
  * 指示は短く具体的にしています。
  */
-import type { AilmentType, PassiveSkillId, StageEventId, StageTraitId } from "../types";
+import type {
+  AilmentType,
+  PassiveSkillId,
+  SpecialMoveType,
+  StageEventId,
+  StageTraitId,
+} from "../types";
 import {
   AILMENT_LABELS,
   PASSIVE_SKILL_SUMMARIES,
+  SPECIAL_MOVE_TYPE_SUMMARIES,
   STAGE_EVENT_SUMMARIES,
   STAGE_TRAIT_SUMMARIES,
 } from "../types";
@@ -73,16 +80,25 @@ export const NARRATION_SYSTEM_PROMPT = [
  * キャラクター生成用のユーザープロンプトを組み立てます。
  * 画像と一緒に送信します。
  *
- * パッシブスキルは全種類ではなく、抽選済みの候補(passiveCandidates)だけを
- * 提示します。Gemini Nano は出力が決定論的で、全種類を提示すると特定の
- * スキルに選択が偏るためです(候補の抽選は ai/passives.ts)。
+ * パッシブスキル・必殺技タイプ・状態異常は全種類ではなく、抽選済みの候補
+ * (passiveCandidates/moveTypeCandidates/ailmentCandidates)だけを提示します。
+ * Gemini Nano は出力が決定論的で、全種類を提示すると特定の選択肢に偏るため
+ * です(候補の抽選は ai/passives.ts・ai/moves.ts)。
  */
 export function buildCharacterPrompt(
   name: string,
   passiveCandidates: readonly PassiveSkillId[],
+  moveTypeCandidates: readonly SpecialMoveType[],
+  ailmentCandidates: readonly AilmentType[],
 ): string {
   const passiveChoices = passiveCandidates
     .map((id) => `${id}(${PASSIVE_SKILL_SUMMARIES[id]})`)
+    .join(" / ");
+  const moveTypeChoices = moveTypeCandidates
+    .map((id) => `${id}(${SPECIAL_MOVE_TYPE_SUMMARIES[id]})`)
+    .join(" / ");
+  const ailmentChoices = ailmentCandidates
+    .map((id) => `${id}(${AILMENT_LABELS[id]})`)
     .join(" / ");
   return [
     `この画像のキャラクター「${name}」を対戦ゲームのファイターにしてください。`,
@@ -91,8 +107,8 @@ export function buildCharacterPrompt(
     "- title: かっこいい二つ名(10文字程度)",
     "- description: 見た目に触れた紹介文(50文字程度)",
     "- specialMove: 必殺技。見た目に一番合うtypeを選ぶ。",
-    "  - type: attack(強力な攻撃) / heal(HP回復) / ailment(状態異常を与える) / buff(自分の攻守を上げる)",
-    "  - ailment: typeがailmentのときだけ poison(毒)/paralysis(麻痺)/burn(やけど)/freeze(凍結) から選ぶ。それ以外は none",
+    `  - type: ${moveTypeChoices}`,
+    `  - ailment: typeがailmentのときだけ ${ailmentChoices} から選ぶ。それ以外は none`,
     `  - name(技名)、power(${STAT_RANGES.specialPower.min}〜${STAT_RANGES.specialPower.max})、mpCost(${STAT_RANGES.specialMpCost.min}〜${STAT_RANGES.specialMpCost.max}。強い技ほど高くする)、description(技の演出説明。30文字以内)`,
     "- passive: パッシブスキル。見た目に一番合うidを選び、キャラ固有のかっこいい名前を付ける。",
     `  - id: ${passiveChoices}`,
@@ -317,6 +333,9 @@ export type NarrationParams = {
   | { type: "special-heal"; moveName: string; healed: number }
   | { type: "special-ailment"; moveName: string; ailment: AilmentType; damage: number }
   | { type: "special-buff"; moveName: string }
+  | { type: "special-drain"; moveName: string; damage: number; healed: number }
+  | { type: "special-debuff"; moveName: string }
+  | { type: "special-all-attack"; moveName: string; damage: number }
   | { type: "counter"; passiveName: string; damage: number }
 );
 
@@ -356,6 +375,23 @@ export function buildNarrationPrompt(params: NarrationParams): string {
     case "special-buff":
       return [
         `${params.actorName}が必殺技「${params.moveName}」で自分の攻撃力と防御力を高めました。`,
+        "この場面を実況してください。",
+      ].join("");
+    case "special-drain":
+      return [
+        `${params.actorName}が必殺技「${params.moveName}」で${params.targetName}に${params.damage}ダメージを与え、`,
+        `HPを${params.healed}吸収しました。${hpInfo}。`,
+        "この場面を実況してください。",
+      ].join("");
+    case "special-debuff":
+      return [
+        `${params.actorName}が必殺技「${params.moveName}」で${params.targetName}の攻撃力と防御力を下げました。`,
+        "この場面を実況してください。",
+      ].join("");
+    case "special-all-attack":
+      return [
+        `${params.actorName}が必殺技「${params.moveName}」を放ち、`,
+        `${params.targetName}を含む生存者全員に${params.damage}ダメージを与えました。${hpInfo}。`,
         "この場面を実況してください。",
       ].join("");
     case "counter":

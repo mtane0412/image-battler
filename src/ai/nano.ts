@@ -13,6 +13,7 @@ import {
   parseGeneratedStats,
 } from "./schema";
 import { samplePassiveCandidates } from "./passives";
+import { sampleMoveCandidates } from "./moves";
 import { sampleStageCandidates } from "./stages";
 import {
   CHAPTER_SYSTEM_PROMPT,
@@ -124,8 +125,10 @@ export async function createStageGenerationSession(
  * 画像と名前からキャラクターのステータスを生成します。
  * responseConstraint で JSON Schema に制約した出力を検証付きでパースします。
  *
- * パッシブスキルはコード側で候補を抽選し、プロンプト・スキーマ・検証の
- * すべてを候補に制約します(決定論的なモデルによる選択の偏り防止)。
+ * パッシブスキル・必殺技タイプ・状態異常はコード側で候補を抽選し、
+ * プロンプト・スキーマ・検証のすべてを候補に制約します(決定論的な
+ * モデルによる選択の偏り防止)。乱数はパッシブ候補 → 必殺技候補
+ * (タイプ→状態異常)の順に消費します。
  * @param rng 候補抽選用の乱数(テストでは決め打ちの列を注入します)
  * @throws CharacterParseError モデル出力が不正な場合(呼び出し側で再生成を促す)
  */
@@ -136,19 +139,40 @@ export async function generateCharacterStats(
   rng: () => number = Math.random,
 ): Promise<GeneratedStats> {
   const passiveCandidates = samplePassiveCandidates(rng);
+  const { types: moveTypeCandidates, ailments: ailmentCandidates } =
+    sampleMoveCandidates(rng);
   const response = await session.prompt(
     [
       {
         role: "user",
         content: [
-          { type: "text", value: buildCharacterPrompt(name, passiveCandidates) },
+          {
+            type: "text",
+            value: buildCharacterPrompt(
+              name,
+              passiveCandidates,
+              moveTypeCandidates,
+              ailmentCandidates,
+            ),
+          },
           { type: "image", value: image },
         ],
       },
     ],
-    { responseConstraint: buildCharacterGenerationSchema(passiveCandidates) },
+    {
+      responseConstraint: buildCharacterGenerationSchema(
+        passiveCandidates,
+        moveTypeCandidates,
+        ailmentCandidates,
+      ),
+    },
   );
-  return parseGeneratedStats(response, passiveCandidates);
+  return parseGeneratedStats(
+    response,
+    passiveCandidates,
+    moveTypeCandidates,
+    ailmentCandidates,
+  );
 }
 
 /**

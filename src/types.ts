@@ -55,8 +55,18 @@ export const AILMENT_LABELS = {
  * - heal: 自分のHPを回復する技
  * - ailment: 相手にステータス異常を与える技(小ダメージ付き)
  * - buff: 自分の攻撃力・防御力を上げる技
+ * - drain: 相手にダメージを与えつつ、その一部を自分のHPに回復する技
+ * - debuff: 相手の攻撃力・防御力を下げる技
+ * - all-attack: 生存する相手全員に低威力のダメージを与える技
  */
-export type SpecialMoveType = "attack" | "heal" | "ailment" | "buff";
+export type SpecialMoveType =
+  | "attack"
+  | "heal"
+  | "ailment"
+  | "buff"
+  | "drain"
+  | "debuff"
+  | "all-attack";
 
 /** 必殺技のタイプ一覧です(検証・表示で使用します)。 */
 export const SPECIAL_MOVE_TYPES = [
@@ -64,7 +74,24 @@ export const SPECIAL_MOVE_TYPES = [
   "heal",
   "ailment",
   "buff",
+  "drain",
+  "debuff",
+  "all-attack",
 ] as const satisfies readonly SpecialMoveType[];
+
+/**
+ * 必殺技タイプの効果の短い要約です。
+ * キャラクター生成プロンプトの候補提示と、効果の説明表示に共用します。
+ */
+export const SPECIAL_MOVE_TYPE_SUMMARIES = {
+  attack: "強力な攻撃",
+  heal: "HP回復",
+  ailment: "状態異常を与える",
+  buff: "自分の攻守を上げる",
+  drain: "ダメージを与えつつ一部を吸収して回復する",
+  debuff: "相手の攻守を下げる",
+  "all-attack": "生存する相手全員に低威力のダメージ",
+} as const satisfies Record<SpecialMoveType, string>;
 
 /** 必殺技タイプの日本語表示名です(ログ・カード表示で共用します)。 */
 export const SPECIAL_MOVE_TYPE_LABELS = {
@@ -72,6 +99,9 @@ export const SPECIAL_MOVE_TYPE_LABELS = {
   heal: "かいふく",
   ailment: "じょうたい",
   buff: "きょうか",
+  drain: "きゅうしゅう",
+  debuff: "よわらせる",
+  "all-attack": "ぜんたい",
 } as const satisfies Record<SpecialMoveType, string>;
 
 /** 必殺技の定義です。Gemini Nano が画像から生成します。 */
@@ -398,6 +428,36 @@ export type BattleEventPayload =
         moveName: string;
         attackGain: number;
         defenseGain: number;
+      }
+    | {
+        /**
+         * きゅうしゅうタイプの必殺技。対象へのダメージと、その一部を自分の
+         * HPへ回復した量をまとめて1件のイベントで表します(targetId は
+         * ダメージを与えた相手。回復は actorId 自身に対する効果です)
+         */
+        type: "special-drain";
+        moveName: string;
+        damage: number;
+        /** 実際に回復した量(最大HPを超えた分は含まない) */
+        healed: number;
+      }
+    | {
+        /** よわらせるタイプの必殺技(相手の攻撃力・防御力を下げる) */
+        type: "special-debuff";
+        moveName: string;
+        attackLoss: number;
+        defenseLoss: number;
+      }
+    | {
+        /**
+         * ぜんたいタイプの必殺技。生存する相手全員に対して1体ずつ
+         * このイベントを発行します。first はそのラウンドで最初に
+         * 効果を受けた対象の行だけ true になります(演出・ログの強調用)
+         */
+        type: "special-all-attack";
+        moveName: string;
+        first: boolean;
+        damage: number;
       }
     | {
         /** 毒・やけどによる行動後のスリップダメージ(自己対象) */

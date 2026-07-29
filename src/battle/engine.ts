@@ -82,6 +82,8 @@ export interface CombatantState {
   defenseBuff: number;
   /** 強化技を使用済みかどうか(1バトルに1回のみ) */
   buffUsed: boolean;
+  /** よわらせる技を使用済みかどうか(1バトルに1回のみ) */
+  debuffUsed: boolean;
   /** パッシブ endure を発動済みかどうか(1バトルに1回のみ) */
   endureUsed: boolean;
 }
@@ -141,10 +143,14 @@ const BLIND_MISS_CHANCE = 0.4;
 const CONFUSION_SELF_HIT_CHANCE = 0.3;
 /** こんらんの自傷ダメージ係数(実効攻撃力に掛ける) */
 const CONFUSION_SELF_DAMAGE_FACTOR = 0.5;
-/** 強化技の攻撃力上昇係数(威力に掛ける) */
+/** 強化技の攻撃力上昇係数(威力に掛ける)。よわらせる技の低下係数にも使います */
 const BUFF_ATTACK_FACTOR = 0.4;
-/** 強化技の防御力上昇係数(威力に掛ける) */
+/** 強化技の防御力上昇係数(威力に掛ける)。よわらせる技の低下係数にも使います */
 const BUFF_DEFENSE_FACTOR = 0.3;
+/** きゅうしゅう技の回復係数(与えたダメージに掛ける) */
+const DRAIN_HEAL_RATIO = 0.5;
+/** ぜんたい技の威力係数(相手全員に分散する分、通常の攻撃技より抑えます) */
+const ALL_ATTACK_POWER_FACTOR = 0.6;
 /** パッシブ counter の反撃発動率 */
 const COUNTER_CHANCE = 0.3;
 /** パッシブ counter の反撃ダメージ係数(攻撃力に掛ける) */
@@ -241,9 +247,13 @@ function hasPassive(state: CombatantState, id: PassiveSkillId): boolean {
   return state.character.passive?.id === id;
 }
 
-/** 強化・逆境(berserk)・やけど・ステージ特性(attack-up)を反映した実効攻撃力を返します。 */
+/**
+ * 強化・よわらせる・逆境(berserk)・やけど・ステージ特性(attack-up)を反映した
+ * 実効攻撃力を返します。よわらせるで attackBuff が負になっても0未満にはしません。
+ */
 function effectiveAttack(state: CombatantState, modifiers: StageModifiers): number {
-  let attack = (state.character.attack + state.attackBuff) * modifiers.attackMul;
+  let attack =
+    Math.max(0, state.character.attack + state.attackBuff) * modifiers.attackMul;
   // berserk: HPが30%以下に減っているとき攻撃力が上がります
   if (
     hasPassive(state, "berserk") &&
@@ -254,9 +264,12 @@ function effectiveAttack(state: CombatantState, modifiers: StageModifiers): numb
   return state.ailment === "burn" ? attack * BURN_ATTACK_FACTOR : attack;
 }
 
-/** 強化・じゃくたいを反映した実効防御力を返します。 */
+/**
+ * 強化・じゃくたいを反映した実効防御力を返します。
+ * よわらせるで defenseBuff が負になっても0未満にはしません。
+ */
 function effectiveDefense(state: CombatantState): number {
-  const defense = state.character.defense + state.defenseBuff;
+  const defense = Math.max(0, state.character.defense + state.defenseBuff);
   return state.ailment === "weaken" ? defense * WEAKEN_DEFENSE_FACTOR : defense;
 }
 
@@ -267,6 +280,9 @@ function effectiveDefense(state: CombatantState): number {
  * - heal: 自分のHPが60%以下
  * - ailment: 対象候補(異常でなく ailment-guard でもない生存する相手)がいる
  * - buff: このバトルでまだ強化技を使っていない
+ * - drain: 生存する相手がいれば使用可能
+ * - debuff: 生存する相手がいて、このバトルでまだよわらせる技を使っていない
+ * - all-attack: 生存する相手がいれば使用可能
  */
 function isSpecialUsable(
   actor: CombatantState,
@@ -279,6 +295,8 @@ function isSpecialUsable(
   }
   switch (move.type) {
     case "attack":
+    case "drain":
+    case "all-attack":
       return livingOpponents.length > 0;
     case "heal":
       return actor.hp <= actor.character.hp * HEAL_HP_THRESHOLD;
@@ -286,6 +304,8 @@ function isSpecialUsable(
       return ailmentTargets.length > 0;
     case "buff":
       return !actor.buffUsed;
+    case "debuff":
+      return livingOpponents.length > 0 && !actor.debuffUsed;
   }
 }
 
@@ -832,6 +852,73 @@ function simulateMultiTeamBattle(
         });
         return "continue";
       }
+      case "drain": {
+        const target = pickTarget(livingOpponents);
+        const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
+        const damage = toDamage(
+          (move.power * variance - effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
+            modifiers.damageTakenMul,
+        );
+        const hit = applyDamage(target, damage);
+        // 与えたダメージの一部を自分のHPへ回復します(life-steal と同様、
+        // とどめの一撃でも回復してからバトル終了の判定に進みます)
+        const healed = Math.min(
+          actor.character.hp - actor.hp,
+          Math.round(damage * DRAIN_HEAL_RATIO),
+        );
+        actor.hp += healed;
+        emit(turn, actor, target, {
+          type: "special-drain",
+          moveName: move.name,
+          damage,
+          healed,
+        });
+        if (hit.endured) {
+          emit(turn, target, target, { type: "endure" });
+        }
+        return hit.knockedOut && countLivingTeams() <= 1
+          ? "finished"
+          : "continue";
+      }
+      case "debuff": {
+        const target = pickTarget(livingOpponents);
+        const attackLoss = Math.round(move.power * BUFF_ATTACK_FACTOR);
+        const defenseLoss = Math.round(move.power * BUFF_DEFENSE_FACTOR);
+        target.attackBuff -= attackLoss;
+        target.defenseBuff -= defenseLoss;
+        actor.debuffUsed = true;
+        emit(turn, actor, target, {
+          type: "special-debuff",
+          moveName: move.name,
+          attackLoss,
+          defenseLoss,
+        });
+        return "continue";
+      }
+      case "all-attack": {
+        // 威力補正は1回だけ消費し、生存する相手全員で共用します(対象選択なし)
+        const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
+        let announced = false;
+        for (const target of livingOpponents) {
+          const damage = toDamage(
+            (move.power * ALL_ATTACK_POWER_FACTOR * variance -
+              effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
+              modifiers.damageTakenMul,
+          );
+          const hit = applyDamage(target, damage);
+          emit(turn, actor, target, {
+            type: "special-all-attack",
+            moveName: move.name,
+            first: !announced,
+            damage,
+          });
+          announced = true;
+          if (hit.endured) {
+            emit(turn, target, target, { type: "endure" });
+          }
+        }
+        return countLivingTeams() <= 1 ? "finished" : "continue";
+      }
     }
   }
 
@@ -965,6 +1052,7 @@ function createState(character: Character, teamIndex: number): CombatantState {
     attackBuff: 0,
     defenseBuff: 0,
     buffUsed: false,
+    debuffUsed: false,
     endureUsed: false,
   };
 }
