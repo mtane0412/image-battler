@@ -1,17 +1,34 @@
 /**
  * @file アプリのルート(画面切り替え)です。ヘッダーと現在の画面を描画します。
- * バトル画面以外へ切り替わるときにBGMを停止します(ヘッダーのロゴなど、
- * どの経路でバトル画面を離れても確実に止めるため、ここで一括して行います)。
+ * BGMを鳴らし続ける画面(BGM_SCREENS)以外へ切り替わるときにBGMを停止します
+ * (ヘッダーのロゴなど、どの経路でバトル画面を離れても確実に止めるため、
+ * ここで一括して行います)。
  */
 import { el } from "./dom";
 import type { AppContext, Screen } from "./navigation";
 import { renderHome } from "./home";
 import { renderCreate } from "./create";
 import { renderStageCreate } from "./stage-create";
-import { renderBattle, renderRoyale } from "./battle";
+import { renderBattle, renderRoyale, renderStoryBattle } from "./battle";
+import { renderStoryOpening } from "./story-opening";
+import { renderStoryPart } from "./story-part";
+import { renderStoryEnding } from "./story-ending";
 import { getSharedBgmPlayer } from "../audio/bgm";
 import { createSettingsPanel } from "./settings-panel";
 import { GITHUB_ICON_SVG } from "./icons";
+
+/**
+ * BGMを鳴らし続ける画面です。ストーリーモードはプロローグ(story-opening)・
+ * 章(story-part)・バトル(story-battle)を行き来しても曲が途切れないよう、
+ * すべて含めます。
+ */
+const BGM_SCREENS: ReadonlySet<Screen["name"]> = new Set([
+  "battle",
+  "royale",
+  "story-opening",
+  "story-part",
+  "story-battle",
+]);
 
 /** GitHubリポジトリのURLです。 */
 const GITHUB_REPO_URL = "https://github.com/mtane0412/image-battler";
@@ -91,9 +108,8 @@ export function initApp(root: HTMLElement): void {
   root.replaceChildren(header, main, footer, settingsPanel.overlay);
 
   function render(screen: Screen): void {
-    // バトル画面(チーム戦・ロイヤル)以外ではBGMを止めます
-    // (再生の開始はバトル画面側で行います)
-    if (screen.name !== "battle" && screen.name !== "royale") {
+    // BGM_SCREENS以外ではBGMを止めます(再生の開始は各画面側で行います)
+    if (!BGM_SCREENS.has(screen.name)) {
       getSharedBgmPlayer().stop();
     }
     switch (screen.name) {
@@ -115,6 +131,18 @@ export function initApp(root: HTMLElement): void {
         main.replaceChildren(
           renderRoyale(ctx, screen.fighters, screen.stage),
         );
+        break;
+      case "story-opening":
+        main.replaceChildren(renderStoryOpening(ctx, screen.run));
+        break;
+      case "story-part":
+        main.replaceChildren(renderStoryPart(ctx, screen.run));
+        break;
+      case "story-battle":
+        main.replaceChildren(renderStoryBattle(ctx, screen.run));
+        break;
+      case "story-ending":
+        main.replaceChildren(renderStoryEnding(ctx, screen.run));
         break;
     }
     window.scrollTo(0, 0);

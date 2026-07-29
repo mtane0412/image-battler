@@ -457,6 +457,12 @@ body:has(.battle-screen) .icon-button {
   outline-offset: 2px;
 }
 
+/* ストーリーの主人公はチーム色・金色と区別するため専用の紫(--mp)で示します */
+.selected-story .card {
+  outline: 3px solid var(--mp);
+  outline-offset: 2px;
+}
+
 .slot-badge {
   position: absolute;
   top: -10px;
@@ -480,6 +486,11 @@ body:has(.battle-screen) .icon-button {
 /* バトルロイヤルのバッジはエントリー番号(No.1〜)を金色で表示します */
 .slot-badge-royale {
   background: var(--gold);
+}
+
+/* ストーリーの主人公バッジは専用の紫(--mp)で表示します */
+.slot-badge-story {
+  background: var(--mp);
 }
 
 .card-portrait {
@@ -887,6 +898,31 @@ body:has(.battle-screen) .icon-button {
   border: 3px solid var(--gold);
 }
 
+/* ---------- ストーリーの編成パネル(ホーム) ---------- */
+
+/* ストーリーは主人公スロット1つ+ランダムヒント+アクションの3列にします */
+.vs-panel-story {
+  grid-template-columns: auto 1fr auto;
+}
+
+.vs-story-entry {
+  display: flex;
+  align-items: center;
+}
+
+.vs-slot-story img {
+  border: 3px solid var(--mp);
+}
+
+/* 相手・ステージがランダムに決まることを伝えるヒントです */
+.vs-story-random-hint {
+  margin: 0;
+  font-family: var(--font-dot);
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* ---------- キャラ作成 ---------- */
 
 .create-form {
@@ -1075,6 +1111,30 @@ body:has(.battle-screen) .icon-button {
 }
 
 .stage-banner-trait {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- ストーリーモードの章バナー ---------- */
+/* ストーリーパート画面(ui/story-part.ts)とバトル画面のストーリー章再生
+   (ui/battle.ts)の両方で使う共通部品(ui/chapter-banner.ts)です。
+   見た目は上記の .stage-banner と揃えています */
+
+.chapter-banner {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin: 4px 0;
+  font-family: var(--font-dot);
+}
+
+.chapter-banner-index {
+  font-size: 15px;
+  color: var(--gold);
+}
+
+.chapter-banner-stage {
   font-size: 12px;
   color: var(--muted);
 }
@@ -1343,6 +1403,7 @@ body:has(.battle-screen) .icon-button {
 
 /* シグネチャ: レトロRPG風メッセージウィンドウ */
 .msg-window {
+  position: relative;
   background: #05070f;
   border: 4px solid var(--paper);
   border-radius: 10px;
@@ -1355,6 +1416,9 @@ body:has(.battle-screen) .icon-button {
   font-family: var(--font-dot);
   font-size: 15px;
   line-height: 1.95;
+  /* クリックでタイプライター演出のスキップ・次へ進む操作ができるためのヒント
+     (ui/message-advance.ts・ui/typewriter.ts の skip() 統合) */
+  cursor: pointer;
 }
 
 .log-line {
@@ -1418,6 +1482,23 @@ body:has(.battle-screen) .icon-button {
   content: "▼";
   margin-left: 4px;
   animation: blink 0.8s steps(2) infinite;
+}
+
+/* メッセージ送り(ui/message-advance.ts)のクリックヒントです。
+   .msg-window の右下に絶対配置しているため、ログが伸びてスクロールしても
+   位置がずれず、常に画面内で見えます(操作対象のボタンが画面外に隠れがちな
+   問題への対策です) */
+.msg-advance-hint {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(5, 7, 15, 0.85);
+  color: var(--gold);
+  font-family: var(--font-dot);
+  font-size: 12px;
+  animation: blink 1s steps(2) infinite;
 }
 
 /* 必殺技カットイン(ステージ上のオーバーレイ) */
@@ -1564,6 +1645,223 @@ body:has(.battle-screen) .icon-button {
 }
 
 .battle-controls {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+/* ---------- ストーリープロローグ画面 ---------- */
+/* 主人公だけを中央に表示し、旅の目的を語るオープニングナレーションを
+   .msg-window(既存のバトル画面と共通)で見せます。まだ相手が登場しない
+   場面のためVSマークや背景演出は持ちません */
+
+.story-opening-stage {
+  display: flex;
+  justify-content: center;
+  margin: 14px 0;
+  padding: 18px 12px;
+}
+
+/* 主人公はチーム色(青/赤)・ロイヤルの金とも違う専用の紫(--mp)で示し、
+   ホーム画面の「主人公」バッジ(.slot-badge-story)と配色を揃えます */
+.story-portrait-center .story-portrait-image {
+  border: 4px solid var(--mp);
+}
+
+.story-opening-controls {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+/* ---------- ストーリーパート画面 ---------- */
+/* 主人公と相手の立ち絵を向かい合わせに表示し、ナレーション→相手のセリフ→
+   主人公のセリフを .msg-window(既存のバトル画面と共通)で見せます。
+   .stage の9行サブグリッドには巻き込まれない独立レイアウトです */
+
+.story-part-stage {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(16px, 4vw, 40px);
+  margin: 14px 0;
+  padding: 18px 12px;
+}
+
+/* 背景は .stage-has-background::before(バトル画面)と同じ手法です。
+   画像URLは story-part.ts が --stage-bg-image カスタムプロパティとして注入します */
+.story-part-stage.stage-has-background::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  background-image: var(--stage-bg-image);
+  background-size: cover;
+  background-position: center;
+  border-radius: 10px;
+  filter: blur(2px) brightness(0.4);
+}
+
+.story-portrait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  width: min(180px, 38vw);
+}
+
+.story-portrait-image {
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #060915;
+}
+
+.story-portrait-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 主人公(左)・相手(右)をチーム戦の1P/2Pと同じ配色で見分けられるようにします */
+.story-portrait-left .story-portrait-image {
+  border: 4px solid var(--p1);
+}
+
+.story-portrait-right .story-portrait-image {
+  border: 4px solid var(--p2);
+}
+
+.story-portrait-title {
+  margin: 6px 0 0;
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.story-portrait-name {
+  margin: 0;
+  font-family: var(--font-dot);
+  font-size: 16px;
+}
+
+.story-part-vs {
+  font-size: 34px;
+}
+
+.story-part-controls {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+/* ---------- ストーリーエンディング画面 ---------- */
+
+/* エンディングランクの見出しです。全戦全勝・勝ち越しは金、五分は白、
+   負け越し・全敗は赤(--p2)で結果の重みを伝えます */
+.ending-rank {
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 40px;
+  letter-spacing: 0.25em;
+  margin: 18px 0 10px;
+  text-shadow: 4px 4px 0 rgba(0, 0, 0, 0.6);
+}
+
+.ending-rank-perfect,
+.ending-rank-good {
+  color: var(--gold);
+}
+
+.ending-rank-normal {
+  color: var(--paper);
+}
+
+.ending-rank-bad,
+.ending-rank-worst {
+  color: var(--p2);
+}
+
+.story-ending-record {
+  list-style: none;
+  margin: 14px 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.story-ending-record-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--font-dot);
+  font-size: 13px;
+}
+
+/* 章ごとの勝敗を枠色でも見分けられるようにします */
+.story-ending-record-win {
+  border-color: var(--p1);
+}
+
+.story-ending-record-lose {
+  border-color: var(--p2);
+}
+
+.story-ending-record-draw {
+  border-color: var(--muted);
+}
+
+.story-ending-record-index {
+  color: var(--gold);
+  min-width: 3.5em;
+}
+
+.story-ending-record-stage {
+  color: var(--muted);
+}
+
+.story-ending-record-opponent {
+  flex: 1;
+  min-width: 0;
+}
+
+.story-ending-record-outcome {
+  font-weight: 700;
+}
+
+.story-ending-record-win .story-ending-record-outcome {
+  color: var(--p1);
+}
+
+.story-ending-record-lose .story-ending-record-outcome {
+  color: var(--p2);
+}
+
+.story-ending-record-draw .story-ending-record-outcome {
+  color: var(--muted);
+}
+
+.story-ending-summary {
+  text-align: center;
+  font-family: var(--font-dot);
+  font-size: 16px;
+  color: var(--gold);
+  margin: 10px 0 0;
+}
+
+.story-ending-controls {
   display: flex;
   justify-content: center;
   gap: 14px;
@@ -1720,6 +2018,25 @@ body:has(.battle-screen) .icon-button {
 
   .result-word {
     font-size: 32px;
+  }
+
+  /* 幅が狭いときはストーリーパートの立ち絵とVSマーク、エンディング見出しも
+     一段小さくします */
+  .story-portrait {
+    width: min(130px, 34vw);
+  }
+
+  .story-part-vs {
+    font-size: 24px;
+  }
+
+  .ending-rank {
+    font-size: 28px;
+  }
+
+  /* 幅が狭いときはストーリーの編成パネルも1列に積みます(ロイヤルと同じ理由) */
+  .vs-panel-story {
+    grid-template-columns: 1fr;
   }
 
   .settings-overlay {
