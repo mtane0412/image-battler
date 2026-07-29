@@ -303,6 +303,178 @@ describe("simulateBattle: ステータス異常タイプの必殺技", () => {
   });
 });
 
+describe("simulateBattle: 拡張ステータス異常タイプの必殺技(のろい/くらやみ/こんらん/じゃくたい)", () => {
+  /** 拡張ステータス異常を与える技を持つ素早いキャラクターと、遅い通常キャラクターの組です。 */
+  function makeExtraAilmentPair(ailment: "curse" | "blind" | "confusion" | "weaken") {
+    const 仕掛け役 = makeCharacter({
+      id: "a",
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "じょうたい技", type: "ailment", power: 50, ailment }),
+    });
+    const 受け手 = makeCharacter({
+      id: "b",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+    });
+    return { 仕掛け役, 受け手 };
+  }
+
+  it("じゃくたいは実効防御力を半減させる(20→10で被ダメージが32から36に増える)", () => {
+    const { 仕掛け役, 受け手 } = makeExtraAilmentPair("weaken");
+    // 1手目: 異常技 round(50*0.3*1.0)=15ダメージ + じゃくたい付与(bのHP 100→85)
+    // 2手目: bの通常攻撃32ダメージ(aのHP 100→68、じゃくたいはbの防御には無関係)
+    // 3手目: bが異常中なので異常技は使えず通常攻撃。bの防御は20→10に半減し、
+    //         40*1.0 - 10*0.4 = 36ダメージ(じゃくたいなしなら32のはず)
+    const result = simulateBattle(
+      仕掛け役,
+      受け手,
+      sequenceRng([0.1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-ailment",
+      ailment: "weaken",
+      damage: 15,
+      after: { b: { hp: 85, ailment: "weaken" } },
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "attack",
+      actorId: "b",
+      damage: 32,
+      after: { a: { hp: 68 } },
+    });
+    expect(result.events[2]).toMatchObject({
+      type: "attack",
+      actorId: "a",
+      damage: 36,
+      after: { b: { hp: 49 } },
+    });
+  });
+
+  it("くらやみは自分の通常攻撃のミス率を0.4に上げる(通常なら外れない0.1の乱数でミスする)", () => {
+    const { 仕掛け役, 受け手 } = makeExtraAilmentPair("blind");
+    // 1手目: 異常技でbにくらやみを付与
+    // 2手目: bの通常攻撃。ミス判定の乱数0.1は通常のミス率0.05なら命中するが、
+    //         くらやみのミス率0.4のもとでは外れる
+    const result = simulateBattle(
+      仕掛け役,
+      受け手,
+      sequenceRng([0.1, 0.5, 0.1]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-ailment",
+      ailment: "blind",
+      after: { b: { ailment: "blind" } },
+    });
+    expect(result.events[1]).toMatchObject({ type: "miss", actorId: "b" });
+  });
+
+  it("のろいは行動後のMP回復が発生しない", () => {
+    const 呪い師 = makeCharacter({
+      id: "a",
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "じょうたい技", type: "ailment", power: 50, ailment: "curse" }),
+    });
+    const 対象 = makeCharacter({
+      id: "b",
+      hp: 150,
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 30,
+      specialMove: makeSpecialMove({ name: "ねじれのポーズ", type: "buff", power: 50, mpCost: 20 }),
+    });
+    // 1手目: aの異常技でbにのろいを付与(bのHP 150→135)
+    // 2手目: bの強化技(MP消費20で60→40。イベントの snapshot は行動後効果より前なので
+    //         この時点では curse の有無にかかわらず40)。defenseGain=round(50*0.3)=15で
+    //         bの防御は20→35になる
+    // 3手目: bが異常中なので異常技は使えず、aの通常攻撃 40*1.0-35*0.4=26ダメージ
+    //         (bのHP 135→109)。このイベントの snapshot は2手目の行動後効果を経た
+    //         最新値のため、のろいがなければ 40+10=50 になるはずのbのMPが40のまま観測できる
+    const result = simulateBattle(
+      呪い師,
+      対象,
+      sequenceRng([0.1, 0.5, 0.1, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-ailment",
+      ailment: "curse",
+      after: { b: { ailment: "curse" } },
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "special-buff",
+      moveName: "ねじれのポーズ",
+      actorId: "b",
+      after: { b: { mp: 40 } },
+    });
+    expect(result.events[2]).toMatchObject({
+      type: "attack",
+      actorId: "a",
+      targetId: "b",
+      damage: 26,
+      after: { b: { hp: 109, mp: 40 } },
+    });
+  });
+
+  it("こんらんは30%の確率で自分を攻撃してしまい、その場合は通常の行動が行われない", () => {
+    const { 仕掛け役, 受け手 } = makeExtraAilmentPair("confusion");
+    // 1手目: 異常技でbにこんらんを付与(bのHP 100→85)
+    // 2手目: bのこんらん判定0.1(<0.3)で自分を攻撃。round(40*0.5)=20の自傷ダメージ(bのHP 85→65)
+    // 3手目: bが異常中なので異常技は使えず、aの通常攻撃32ダメージ(bのHP 65→33)
+    const result = simulateBattle(
+      仕掛け役,
+      受け手,
+      sequenceRng([0.1, 0.5, 0.1, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[0]).toMatchObject({
+      type: "special-ailment",
+      ailment: "confusion",
+      after: { b: { hp: 85, ailment: "confusion" } },
+    });
+    expect(result.events[1]).toMatchObject({
+      type: "ailment-confusion",
+      ailment: "confusion",
+      damage: 20,
+      actorId: "b",
+      targetId: "b",
+      turn: 2,
+      after: { b: { hp: 65 } },
+    });
+    expect(result.events[2]).toMatchObject({
+      type: "attack",
+      actorId: "a",
+      targetId: "b",
+      damage: 32,
+      after: { b: { hp: 33 } },
+    });
+  });
+
+  it("こんらん判定を外れた場合は通常どおり行動できる", () => {
+    const { 仕掛け役, 受け手 } = makeExtraAilmentPair("confusion");
+    // 2手目: bのこんらん判定0.5(≥0.3)で自傷せず、通常攻撃32ダメージが発生する
+    const result = simulateBattle(
+      仕掛け役,
+      受け手,
+      sequenceRng([0.1, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    );
+    expect(result.events[1]).toMatchObject({
+      type: "attack",
+      actorId: "b",
+      targetId: "a",
+      damage: 32,
+      after: { a: { hp: 68 } },
+    });
+  });
+});
+
 describe("simulateBattle: 自己強化タイプの必殺技", () => {
   it("強化技は攻撃力と防御力を上げ、以降の与ダメージ・被ダメージに反映される", () => {
     // 1手目: aの強化技(乱数は判定のみ)。attackGain = round(50*0.4) = 20、defenseGain = round(50*0.3) = 15

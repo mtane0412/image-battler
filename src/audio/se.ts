@@ -155,6 +155,10 @@ const AILMENT_SE_KEYS = {
   paralysis: "special-thunder",
   burn: "special-flame",
   freeze: "special-ice",
+  curse: "special-dark",
+  blind: "special-dark",
+  confusion: "special-wind",
+  weaken: "special-dark",
 } as const satisfies Record<AilmentType, SeKey>;
 
 /**
@@ -200,6 +204,7 @@ export function seKeyForEvent(
     case "ailment-damage":
     case "ailment-skip":
     case "ailment-cure":
+    case "ailment-confusion":
     case "endure":
     case "life-steal":
     case "regenerate":

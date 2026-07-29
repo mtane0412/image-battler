@@ -15,7 +15,8 @@
  * - 決着: 生存チームが1つになった時点でそのチームの勝ちです
  * - 必殺技はMPを消費し、MPは自分の行動後に一定量回復します
  * - 必殺技はタイプ(attack/heal/ailment/buff)ごとに効果と使用条件が異なります
- * - ステータス異常は毒・麻痺・やけど・凍結の4種で、同時に1つだけ罹患します
+ * - ステータス異常は毒・麻痺・やけど・凍結・のろい・くらやみ・こんらん・じゃくたいの
+ *   8種で、同時に1つだけ罹患します
  * - パッシブスキル(crit-master/ailment-guard/endure/counter/mp-boost/
  *   life-steal/regenerate/berserk/evasion/first-strike)は
  *   エンジン内の判定に組み込まれています(passive が null のキャラは効果なし)
@@ -33,15 +34,19 @@
  * - 各ラウンド開始時: stage が非nullの場合のみ[ステージイベント判定]を1回消費します
  *   (発動時の効果適用自体は決定論的で追加の乱数を消費しません)
  * - 各アクション(倒れたキャラクターの枠は乱数もターン番号も消費しません):
- *   1. 凍結中: [解凍判定] / 麻痺中: [麻痺判定](行動不能ならここで終了)
+ *   1. 凍結中: [解凍判定] / 麻痺中: [麻痺判定] / こんらん中: [こんらん判定]
+ *      (行動不能・自傷ならここで終了。こんらんで自傷した場合は[威力補正]を
+ *      追加消費せず、実効攻撃力から決定論的に自傷ダメージを算出します)
  *   2. 必殺技が使用可能な場合: [必殺技判定] → 発動時、attack / ailment タイプは
  *      [対象選択](生存する対象候補が2体以上のときのみ1回)→ [威力補正]を1回消費
  *      (heal は[威力補正]のみ、buff はどちらも消費しない)
  *   3. 通常攻撃の場合: [対象選択](生存する相手が2体以上のときのみ1回)→
  *      [ミス判定] → [クリティカル判定] → [威力補正]
- *      (対象が evasion 持ちの場合もミス判定の確率が変わるだけで消費順は不変)
+ *      (対象が evasion 持ち、行動者が blind の場合もミス判定の確率が変わるだけで
+ *      消費順は不変。じゃくたいは対象の実効防御力を下げるだけで乱数を消費しません)
  *   4. 通常攻撃が命中し、対象が counter 持ちで生存している場合: [反撃判定]
  *   5. life-steal / regenerate の回復、行動後の毒・やけどダメージとMP回復: 乱数消費なし
+ *      (のろい罹患中は行動後のMP回復量が0になりますが、乱数は消費しません)
  */
 import type {
   AilmentType,
@@ -128,6 +133,14 @@ const BURN_ATTACK_FACTOR = 0.5;
 const PARALYSIS_SKIP_CHANCE = 0.25;
 /** 凍結が解除される確率(自分の行動時に判定) */
 const FREEZE_THAW_CHANCE = 0.3;
+/** じゃくたい中の実効防御力の倍率 */
+const WEAKEN_DEFENSE_FACTOR = 0.5;
+/** くらやみ中の通常攻撃のミス発生率 */
+const BLIND_MISS_CHANCE = 0.4;
+/** こんらんで自分を攻撃してしまう確率(自分の行動時に判定) */
+const CONFUSION_SELF_HIT_CHANCE = 0.3;
+/** こんらんの自傷ダメージ係数(実効攻撃力に掛ける) */
+const CONFUSION_SELF_DAMAGE_FACTOR = 0.5;
 /** 強化技の攻撃力上昇係数(威力に掛ける) */
 const BUFF_ATTACK_FACTOR = 0.4;
 /** 強化技の防御力上昇係数(威力に掛ける) */
@@ -241,9 +254,10 @@ function effectiveAttack(state: CombatantState, modifiers: StageModifiers): numb
   return state.ailment === "burn" ? attack * BURN_ATTACK_FACTOR : attack;
 }
 
-/** 強化を反映した実効防御力を返します。 */
+/** 強化・じゃくたいを反映した実効防御力を返します。 */
 function effectiveDefense(state: CombatantState): number {
-  return state.character.defense + state.defenseBuff;
+  const defense = state.character.defense + state.defenseBuff;
+  return state.ailment === "weaken" ? defense * WEAKEN_DEFENSE_FACTOR : defense;
 }
 
 /**
@@ -617,6 +631,26 @@ function simulateMultiTeamBattle(
         emit(turn, actor, actor, { type: "ailment-skip", ailment: "paralysis" });
         return endOfAction(turn, actor);
       }
+    } else if (actor.ailment === "confusion") {
+      if (rng() < CONFUSION_SELF_HIT_CHANCE) {
+        const damage = toDamage(
+          effectiveAttack(actor, modifiers) * CONFUSION_SELF_DAMAGE_FACTOR,
+        );
+        const hit = applyDamage(actor, damage);
+        emit(turn, actor, actor, {
+          type: "ailment-confusion",
+          ailment: "confusion",
+          damage,
+        });
+        if (hit.endured) {
+          emit(turn, actor, actor, { type: "endure" });
+        }
+        if (hit.knockedOut) {
+          // 自傷で倒れたキャラクターは行動後効果(スリップダメージ等)を行いません
+          return countLivingTeams() <= 1 ? "finished" : "continue";
+        }
+        return endOfAction(turn, actor);
+      }
     }
 
     // --- 2. 必殺技 ---
@@ -638,10 +672,12 @@ function simulateMultiTeamBattle(
 
     // --- 3. 通常攻撃 ---
     const target = pickTarget(livingOpponents);
-    // 対象が evasion 持ちの場合はミス率が上がります(乱数の消費順は不変)
-    const missChance = hasPassive(target, "evasion")
-      ? EVASION_MISS_CHANCE
-      : MISS_CHANCE;
+    // 対象が evasion 持ち、または行動者がくらやみの場合はミス率が上がります
+    // (高いほうを採用します。乱数の消費順は不変)
+    const missChance = Math.max(
+      hasPassive(target, "evasion") ? EVASION_MISS_CHANCE : MISS_CHANCE,
+      actor.ailment === "blind" ? BLIND_MISS_CHANCE : MISS_CHANCE,
+    );
     if (rng() < missChance) {
       emit(turn, actor, target, { type: "miss" });
       return endOfAction(turn, actor);
@@ -836,9 +872,12 @@ function simulateMultiTeamBattle(
         emit(turn, actor, actor, { type: "regenerate", healed });
       }
     }
+    // のろい罹患中は行動後のMP回復が発生しません(乱数消費なし)
     const regen =
-      MP_REGEN_PER_TURN * (hasPassive(actor, "mp-boost") ? MP_BOOST_MULTIPLIER : 1) +
-      modifiers.mpRegenAdd;
+      actor.ailment === "curse"
+        ? 0
+        : MP_REGEN_PER_TURN * (hasPassive(actor, "mp-boost") ? MP_BOOST_MULTIPLIER : 1) +
+          modifiers.mpRegenAdd;
     actor.mp = Math.min(actor.character.mp, actor.mp + regen);
     return "continue";
   }

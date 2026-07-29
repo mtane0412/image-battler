@@ -46,6 +46,8 @@ export function describeEvent(
         : `${actor}は こおりついて うごけない!`;
     case "ailment-cure":
       return `${actor}の こおりが とけた!`;
+    case "ailment-confusion":
+      return `${actor}は こんらんして じぶんを こうげきした! ${event.damage}の ダメージ!`;
     case "counter":
       return `${actor}の はんげき! ${target}に ${event.damage}の ダメージ!`;
     case "endure":

@@ -4,8 +4,26 @@
  * 状態管理(JavaScript側)が扱うデータ構造をここに集約します。
  */
 
-/** ステータス異常の種類です。1キャラクターは同時に1つだけ罹患します。 */
-export type AilmentType = "poison" | "paralysis" | "burn" | "freeze";
+/**
+ * ステータス異常の種類です。1キャラクターは同時に1つだけ罹患します。
+ * - poison: 行動後に最大HPの1/8のダメージ
+ * - paralysis: 25%の確率で行動不能
+ * - burn: 行動後に最大HPの1/16のダメージ + こうげき半減
+ * - freeze: 行動不能(毎ターン30%の確率で解除)
+ * - curse: 行動後のMP回復が発生しない
+ * - blind: 自分の通常攻撃のミス率が上がる
+ * - confusion: 行動時に一定確率で自分を攻撃してしまう
+ * - weaken: 実効防御力が下がる
+ */
+export type AilmentType =
+  | "poison"
+  | "paralysis"
+  | "burn"
+  | "freeze"
+  | "curse"
+  | "blind"
+  | "confusion"
+  | "weaken";
 
 /** ステータス異常の種類一覧です(検証・表示で使用します)。 */
 export const AILMENT_TYPES = [
@@ -13,6 +31,10 @@ export const AILMENT_TYPES = [
   "paralysis",
   "burn",
   "freeze",
+  "curse",
+  "blind",
+  "confusion",
+  "weaken",
 ] as const satisfies readonly AilmentType[];
 
 /** ステータス異常の日本語表示名です(ログ・実況・カード表示で共用します)。 */
@@ -21,6 +43,10 @@ export const AILMENT_LABELS = {
   paralysis: "まひ",
   burn: "やけど",
   freeze: "こおり",
+  curse: "のろい",
+  blind: "くらやみ",
+  confusion: "こんらん",
+  weaken: "じゃくたい",
 } as const satisfies Record<AilmentType, string>;
 
 /**
@@ -388,6 +414,12 @@ export type BattleEventPayload =
         /** 凍結の解除(自己対象) */
         type: "ailment-cure";
         ailment: Extract<AilmentType, "freeze">;
+      }
+    | {
+        /** こんらんによる行動時の自傷(自己対象。この場合は通常の行動を行いません) */
+        type: "ailment-confusion";
+        ailment: Extract<AilmentType, "confusion">;
+        damage: number;
       }
     | {
         /** パッシブ「counter」による反撃(actor が反撃する側) */
