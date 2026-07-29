@@ -6,15 +6,19 @@
  *   キーワードがない場合もハッシュにより決定的にプールから選択されること
  * - seKeyForEvent: バトルイベント種別ごとに正しい効果音キーへ変換されること
  * - createSePlayer: 効果音の生成・多重再生・音量設定・再生失敗時の安全性
+ * - loadSeVolume / saveSeVolume: 効果音音量の既定値と保存・復元
  *
  * 音声再生(HTMLAudioElement)は外部依存(ブラウザAPI)のため、
  * フェイクのAudio実装を注入してテストします。
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SE_VOLUME,
+  SE_VOLUME_STORAGE_KEY,
   SPECIAL_SE_KEYS,
   createSePlayer,
+  loadSeVolume,
+  saveSeVolume,
   seKeyForEvent,
   selectSpecialSeKey,
   seUrl,
@@ -218,6 +222,43 @@ describe("seUrl", () => {
   });
 });
 
+describe("loadSeVolume / saveSeVolume", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("未設定のときは既定音量(SE_VOLUME)を返す", () => {
+    expect(loadSeVolume()).toBe(SE_VOLUME);
+  });
+
+  it("保存した音量が復元される", () => {
+    saveSeVolume(0.3);
+    expect(loadSeVolume()).toBe(0.3);
+  });
+
+  it("範囲外(0未満・1超)の値が保存されていた場合は既定音量にフォールバックする", () => {
+    localStorage.setItem(SE_VOLUME_STORAGE_KEY, "2");
+    expect(loadSeVolume()).toBe(SE_VOLUME);
+    localStorage.setItem(SE_VOLUME_STORAGE_KEY, "-1");
+    expect(loadSeVolume()).toBe(SE_VOLUME);
+  });
+
+  it("数値でない値が保存されていた場合は既定音量にフォールバックする", () => {
+    localStorage.setItem(SE_VOLUME_STORAGE_KEY, "壊れた値");
+    expect(loadSeVolume()).toBe(SE_VOLUME);
+  });
+
+  it("空文字列が保存されていた場合は既定音量にフォールバックする(Number('')が0になる罠を防ぐ)", () => {
+    localStorage.setItem(SE_VOLUME_STORAGE_KEY, "");
+    expect(loadSeVolume()).toBe(SE_VOLUME);
+  });
+
+  it("設定は専用のlocalStorageキーに保存される", () => {
+    saveSeVolume(0.9);
+    expect(localStorage.getItem(SE_VOLUME_STORAGE_KEY)).toBe("0.9");
+  });
+});
+
 describe("createSePlayer", () => {
   /**
    * HTMLAudioElement のフェイク実装です。
@@ -267,6 +308,11 @@ describe("createSePlayer", () => {
     return { player, created };
   }
 
+  beforeEach(() => {
+    // loadSeVolume() が読む音量設定が前のテストから残らないようにします
+    localStorage.clear();
+  });
+
   afterEach(() => {
     // document.hidden を上書きしたテストの後始末(own propertyを消して既定に戻す)
     Reflect.deleteProperty(document, "hidden");
@@ -284,6 +330,17 @@ describe("createSePlayer", () => {
     if (clone === undefined) throw new Error("再生用の複製が生成されていません");
     expect(clone.playCallCount).toBe(1);
     expect(clone.volume).toBe(SE_VOLUME);
+  });
+
+  it("保存済みの音量設定があればその音量で再生する", () => {
+    saveSeVolume(0.2);
+    const { player, created } = makePlayer();
+    player.play("miss");
+    const audio = created[0];
+    if (audio === undefined) throw new Error("Audioが生成されていません");
+    const clone = audio.clones[0];
+    if (clone === undefined) throw new Error("再生用の複製が生成されていません");
+    expect(clone.volume).toBe(0.2);
   });
 
   it("同じキーを2回再生してもAudioの生成は1回で、複製により多重再生できる", () => {
