@@ -1053,6 +1053,7 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
         actor.root.classList.add("flash");
         break;
       case "ailment-damage":
+      case "ailment-confusion":
       case "stage-damage":
       case "stage-ailment":
         actor.root.classList.add("shake");
@@ -1152,6 +1153,7 @@ function narrationParamsFor(
     case "ailment-damage":
     case "ailment-skip":
     case "ailment-cure":
+    case "ailment-confusion":
     case "endure":
     case "life-steal":
     case "regenerate":
