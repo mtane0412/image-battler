@@ -196,7 +196,8 @@ export function seKeyForEvent(
     case "special-ailment":
       return AILMENT_SE_KEYS[event.ailment];
     case "counter":
-      // 反撃は重い一撃の音で強調します
+    case "thorns":
+      // 反撃・とげの反射は重い一撃の音で強調します
       return "critical";
     case "attack":
       if (event.critical) {

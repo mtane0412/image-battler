@@ -1015,6 +1015,244 @@ describe("simulateBattle: パッシブスキル", () => {
     });
     expect(simulateBattle(a, b, sequenceRng([])).events[0]?.actorId).toBe("b");
   });
+
+  it("guard-master は受けるダメージが0.75倍になる", () => {
+    // raw = 40*1.0 - 20*0.4 = 32 → guard-master で round(32*0.75) = 24
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, mp: 0, speed: 90 });
+    const 守り手 = makeCharacter({
+      id: "b",
+      hp: 100,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("guard-master"),
+    });
+    const result = simulateBattle(攻め手, 守り手, sequenceRng([0.5, 0.5, 0.5]));
+    expect(result.events[0]).toMatchObject({
+      type: "attack",
+      damage: 24,
+      after: { b: { hp: 76 } },
+    });
+  });
+
+  it("pierce は通常攻撃で相手の防御力を無視する", () => {
+    // pierce なしなら 40*1.0-20*0.4=32、pierce ありなら 40*1.0-0=40
+    const 貫通役 = makeCharacter({
+      id: "a",
+      attack: 40,
+      mp: 0,
+      speed: 90,
+      passive: makePassive("pierce"),
+    });
+    const 受け手 = makeCharacter({ id: "b", hp: 100, defense: 20, mp: 0, speed: 30 });
+    const result = simulateBattle(貫通役, 受け手, sequenceRng([0.5, 0.5, 0.5]));
+    expect(result.events[0]).toMatchObject({ type: "attack", damage: 40 });
+  });
+
+  it("thorns は通常攻撃を受けると確率判定なしで必ずダメージを反射する", () => {
+    // 1手目: aの攻撃32ダメージ(bのHP 100→68)
+    //   反射: round(32*0.2)=6ダメージ(aのHP 100→94)。反撃(counter)と違い乱数を消費しない
+    const 攻め手 = makeCharacter({ id: "a", hp: 100, attack: 40, defense: 20, mp: 0, speed: 90 });
+    const とげ役 = makeCharacter({
+      id: "b",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("thorns"),
+    });
+    const result = simulateBattle(攻め手, とげ役, sequenceRng([0.5, 0.5, 0.5]));
+    expect(result.events[0]).toMatchObject({ type: "attack", damage: 32, after: { b: { hp: 68 } } });
+    expect(result.events[1]).toMatchObject({
+      type: "thorns",
+      actorId: "b",
+      targetId: "a",
+      damage: 6,
+      after: { a: { hp: 94 } },
+    });
+  });
+
+  it("special-master は必殺技の発動率が0.65になる(通常の0.4では発動しない乱数でも発動する)", () => {
+    // damage = round(50*1.0 + 40*0.5 - 20*0.2) = 66(既存の必殺技テストと同じ計算式)
+    const 通常 = makeCharacter({ id: "a", attack: 40, mp: 60, speed: 90 });
+    const 達人 = makeCharacter({
+      id: "a",
+      attack: 40,
+      mp: 60,
+      speed: 90,
+      passive: makePassive("special-master"),
+    });
+    const 受け手 = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    // 0.5 は通常の発動率0.4未満ではないため発動しないが、special-masterの0.65未満なので発動する
+    expect(
+      simulateBattle(通常, 受け手, sequenceRng([0.5, 0.5, 0.5, 0.5])).events[0],
+    ).toMatchObject({ type: "attack" });
+    expect(
+      simulateBattle(達人, 受け手, sequenceRng([0.5, 0.5])).events[0],
+    ).toMatchObject({ type: "special-attack", damage: 66 });
+  });
+
+  it("mp-saver は必殺技の消費MPが半分になり、使用可否の判定にも反映される", () => {
+    const 通常 = makeCharacter({
+      id: "a",
+      attack: 40,
+      mp: 20,
+      speed: 90,
+      specialMove: makeSpecialMove({ mpCost: 30 }),
+    });
+    const 節約家 = makeCharacter({
+      id: "a",
+      attack: 40,
+      mp: 20,
+      speed: 90,
+      specialMove: makeSpecialMove({ mpCost: 30 }),
+      passive: makePassive("mp-saver"),
+    });
+    const 受け手 = makeCharacter({ id: "b", hp: 200, defense: 20, mp: 0, speed: 30 });
+    // mp20 < 消費30 なので通常は必殺技判定自体が行われない(先頭0.01がミス判定になる)
+    expect(
+      simulateBattle(通常, 受け手, sequenceRng([0.01])).events[0],
+    ).toMatchObject({ type: "miss" });
+    // mp-saver で実質消費15(round(30*0.5))になるためmp20で使用可能。
+    // damage = round(50*1.0+40*0.5-20*0.2) = 66、MPは20-15=5
+    expect(
+      simulateBattle(節約家, 受け手, sequenceRng([0.1, 0.5])).events[0],
+    ).toMatchObject({ type: "special-attack", damage: 66, after: { a: { mp: 5 } } });
+  });
+
+  it("crit-guard 持ちは会心の一撃を受けない(判定の乱数は消費される)", () => {
+    const 攻め手 = makeCharacter({ id: "a", attack: 40, luck: 100, mp: 0, speed: 90 });
+    const 通常受け = makeCharacter({ id: "b", defense: 20, mp: 0, speed: 30 });
+    const 守り手 = makeCharacter({
+      id: "b",
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("crit-guard"),
+    });
+    const 乱数 = [0.5, 0.1, 0.5];
+    expect(
+      simulateBattle(攻め手, 通常受け, sequenceRng([...乱数])).events[0],
+    ).toMatchObject({ type: "attack", critical: true, damage: 48 });
+    expect(
+      simulateBattle(攻め手, 守り手, sequenceRng([...乱数])).events[0],
+    ).toMatchObject({ type: "attack", critical: false, damage: 32 });
+  });
+
+  it("giant-killer は自分より最大HPが多い相手への与ダメージが1.3倍になる", () => {
+    const 巨人狩り = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 90,
+      passive: makePassive("giant-killer"),
+    });
+    const 大型 = makeCharacter({ id: "b", hp: 150, defense: 20, mp: 0, speed: 30 });
+    const 同格 = makeCharacter({ id: "b", hp: 100, defense: 20, mp: 0, speed: 30 });
+    const 乱数 = [0.5, 0.5, 0.5];
+    // 大型(最大HP150 > 100): round(32*1.3) = 42
+    expect(
+      simulateBattle(巨人狩り, 大型, sequenceRng([...乱数])).events[0],
+    ).toMatchObject({ type: "attack", damage: 42 });
+    // 同格(最大HP100、自分以下): 通常どおり32
+    expect(
+      simulateBattle(巨人狩り, 同格, sequenceRng([...乱数])).events[0],
+    ).toMatchObject({ type: "attack", damage: 32 });
+  });
+
+  it("sure-hit は自分の通常攻撃が外れない(evasion持ちの相手にも必中)", () => {
+    const 必中役 = makeCharacter({
+      id: "a",
+      attack: 40,
+      mp: 0,
+      speed: 90,
+      passive: makePassive("sure-hit"),
+    });
+    const 回避役 = makeCharacter({
+      id: "b",
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("evasion"),
+    });
+    // 0.01はevasion(20%)は元よりMISS_CHANCE(5%)でもミスになるはずの乱数だが、
+    // sure-hitでミス率が0になるため命中する
+    const result = simulateBattle(必中役, 回避役, sequenceRng([0.01, 0.5, 0.5]));
+    expect(result.events[0]).toMatchObject({ type: "attack", damage: 32 });
+  });
+
+  it("overheal はHPの回復量が1.5倍になる", () => {
+    // 1手目: bのクリティカル round((60*1.0-20*0.4)*1.5)=78ダメージでaのHPは22(60%以下)
+    // 2手目: aの回復技。通常なら round(30*2*1.0)=60 だが overheal で round(60*1.5)=90。
+    //         ただし最大HP100に対し22しか減っていないため、実際の回復は78で頭打ちになる
+    const 回復役 = makeCharacter({
+      id: "a",
+      hp: 100,
+      defense: 20,
+      mp: 60,
+      speed: 30,
+      specialMove: makeSpecialMove({ name: "いやしの光", type: "heal", power: 30 }),
+      passive: makePassive("overheal"),
+    });
+    const 攻め手 = makeCharacter({ id: "b", attack: 60, luck: 100, mp: 0, speed: 90 });
+    const result = simulateBattle(
+      回復役,
+      攻め手,
+      sequenceRng([0.5, 0.1, 0.5, 0.1, 0.5]),
+    );
+    expect(result.events[1]).toMatchObject({
+      type: "special-heal",
+      moveName: "いやしの光",
+      healed: 78,
+      after: { a: { hp: 100 } },
+    });
+  });
+
+  it("cleanse は行動後に一定確率でステータス異常が自然に治る", () => {
+    const 仕掛け役 = makeCharacter({
+      id: "a",
+      hp: 100,
+      attack: 40,
+      defense: 20,
+      mp: 60,
+      speed: 90,
+      specialMove: makeSpecialMove({ name: "どくのきば", type: "ailment", power: 50, ailment: "poison" }),
+    });
+    const 浄化役 = makeCharacter({
+      id: "b",
+      hp: 200,
+      attack: 40,
+      defense: 20,
+      mp: 0,
+      speed: 30,
+      passive: makePassive("cleanse"),
+    });
+    // 1手目: aの毒技 round(50*0.3*1.0)=15ダメージ + 毒付与(bのHP 200→185)
+    // 2手目: bの通常攻撃32ダメージ(aのHP 100→68)
+    // 行動後: 毒のスリップダメージ round(200/8)=25(bのHP 185→160)
+    //          その後cleanse判定0.1(<0.5)で毒が治る
+    const result = simulateBattle(
+      仕掛け役,
+      浄化役,
+      sequenceRng([0.1, 0.5, 0.5, 0.5, 0.5, 0.1]),
+    );
+    expect(result.events[2]).toMatchObject({
+      type: "ailment-damage",
+      ailment: "poison",
+      damage: 25,
+      after: { b: { hp: 160, ailment: "poison" } },
+    });
+    expect(result.events[3]).toMatchObject({
+      type: "ailment-cure",
+      ailment: "poison",
+      actorId: "b",
+      targetId: "b",
+      after: { b: { hp: 160, ailment: null } },
+    });
+  });
 });
 
 describe("simulateBattle: 入力検証", () => {

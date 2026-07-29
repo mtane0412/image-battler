@@ -337,6 +337,7 @@ export type NarrationParams = {
   | { type: "special-debuff"; moveName: string }
   | { type: "special-all-attack"; moveName: string; damage: number }
   | { type: "counter"; passiveName: string; damage: number }
+  | { type: "thorns"; passiveName: string; damage: number }
 );
 
 /**
@@ -398,6 +399,12 @@ export function buildNarrationPrompt(params: NarrationParams): string {
       return [
         `${params.actorName}のパッシブスキル「${params.passiveName}」が発動し、`,
         `${params.targetName}に${params.damage}の反撃ダメージを与えました。${hpInfo}。`,
+        "この場面を実況してください。",
+      ].join("");
+    case "thorns":
+      return [
+        `${params.actorName}のパッシブスキル「${params.passiveName}」が発動し、`,
+        `${params.targetName}に${params.damage}の反射ダメージを与えました。${hpInfo}。`,
         "この場面を実況してください。",
       ].join("");
     case "attack":
