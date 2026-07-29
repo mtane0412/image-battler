@@ -37,6 +37,13 @@
  * 毎ターン発生しうる状態異常の経過(スリップダメージ・行動不能など)や
  * パッシブによる回復(life-steal / regenerate)は実況せず、メカニカルログ
  * だけで伝えます(実況生成の待ち時間でテンポが落ちるのを防ぐ明示的な仕様です)。
+ *
+ * メッセージ送り(ui/message-advance.ts): 決着後の「もう一度たたかう」/
+ * ストーリーモードの「つぎへ」「けつまつへ」ボタンはログが伸びると画面外に
+ * 隠れがちでテンポが悪いため、決着後はメッセージウィンドウのクリックでも
+ * 同じ操作ができるようにし、ヒント(▼)を表示します。一定時間操作がなければ
+ * 自動的に進みます。決着前のクリックはタイプライター演出のスキップとして
+ * 扱われます。
  */
 import type {
   AilmentType,
@@ -70,6 +77,15 @@ import {
 } from "../ai/prompts";
 import { sampleStoryIngredients, type StoryIngredients } from "../ai/story";
 import {
+  appendChapterResult,
+  currentChapter,
+  isFinalChapter,
+  judgeStoryOutcome,
+  type StoryChapterResult,
+  type StoryOutcome,
+  type StoryRun,
+} from "../story/plan";
+import {
   cutinSideFor,
   pickTimeoutDefeatSpeaker,
   royaleLungeOffsetPx,
@@ -79,6 +95,9 @@ import {
 import { describeEvent } from "./format";
 import { fighterInfoPanel } from "./fighter-info";
 import { bgmToggleButton } from "./bgm-toggle";
+import { chapterBanner, DEFAULT_STAGE_DISPLAY_NAME } from "./chapter-banner";
+import { createTypewriter, pacedWait } from "./typewriter";
+import { createMessageAdvance } from "./message-advance";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
 import {
@@ -91,8 +110,6 @@ import { getSharedBgmPlayer, loadBgmEnabled } from "../audio/bgm";
 
 /** イベント間の待ち時間(ミリ秒)です。 */
 const EVENT_INTERVAL_MS = 450;
-/** タイプライター表示の1文字あたりの間隔(ミリ秒)です。 */
-const TYPE_INTERVAL_MS = 28;
 /** 必殺技セリフの生成を待つ上限(ミリ秒)です。超えたらセリフなしで進行します。 */
 const SPEECH_WAIT_LIMIT_MS = 2500;
 /** 必殺技カットインの表示時間(ミリ秒)です。 */
@@ -146,10 +163,34 @@ function victoryRepresentative(
 }
 
 /**
+ * ストーリーモードの1章としてバトルを再生する場合の追加情報です。
+ * ストーリーモードの各章は主人公1体 vs 相手1体の1vs1のため、
+ * BattleSetup の kind は "teams" のまま、この情報だけを追加で持たせます。
+ */
+interface StoryBattleContext {
+  /** 1始まりの章番号(章バナー表示用) */
+  chapterIndex: number;
+  /**
+   * この章のセリフ生成に使う材料です。ストーリーパート画面(ui/story-part.ts)が
+   * 使ったものと同じ材料を渡すことで、前口上を省いても世界観が揃います。
+   */
+  ingredients: StoryIngredients;
+  /** 決着後のボタンに表示するラベル(最終章は「けつまつへ」、それ以外は「つぎへ」) */
+  nextLabel: string;
+  /** 決着後に次へボタンが押されたときの遷移です。 */
+  onNext(outcome: StoryOutcome): void;
+}
+
+/**
  * バトル画面の形式ごとの設定です(チーム戦 or バトルロイヤル)。
  * stage は選択中のステージで、未選択(デフォルトステージ)の場合は null です。
  * DOMレイアウト用のローカル変数 `stage`(下記)と名前が衝突するため、
  * 参照は必ず `setup.stage` を経由します。
+ *
+ * story はストーリーモードの章として再生する場合だけ設定します(通常の
+ * 1v1・2v2では undefined)。story が設定されている場合、前口上(ストーリー)の
+ * 生成・表示を省略し(ストーリーパート画面で語り終えているため)、決着後の
+ * ボタンは再戦ではなく次の章/エンディングへの遷移になります。
  */
 type BattleSetup =
   | {
@@ -157,6 +198,7 @@ type BattleSetup =
       firstTeam: Character[];
       secondTeam: Character[];
       stage: Stage | null;
+      story?: StoryBattleContext;
     }
   | { kind: "royale"; fighters: Character[]; stage: Stage | null };
 
@@ -182,6 +224,41 @@ export function renderRoyale(
   stage: Stage | null,
 ): HTMLElement {
   return renderBattleScreen(ctx, { kind: "royale", fighters, stage });
+}
+
+/**
+ * ストーリーモードの1章を主人公 vs 相手の1v1バトルとして描画し、再生を開始します。
+ * 決着後は「つぎへ」(最終章は「けつまつへ」)ボタンから、次の章のストーリー
+ * パート、または全章終了時はエンディング画面へ遷移します。
+ */
+export function renderStoryBattle(ctx: AppContext, run: StoryRun): HTMLElement {
+  const chapter = currentChapter(run);
+  const isFinal = isFinalChapter(run, chapter);
+  return renderBattleScreen(ctx, {
+    kind: "teams",
+    firstTeam: [run.plan.protagonist],
+    secondTeam: [chapter.opponent],
+    stage: chapter.stage,
+    story: {
+      chapterIndex: chapter.index,
+      ingredients: chapter.ingredients,
+      nextLabel: isFinal ? "けつまつへ" : "つぎへ",
+      onNext(outcome: StoryOutcome): void {
+        const result: StoryChapterResult = {
+          index: chapter.index,
+          opponentName: chapter.opponent.name,
+          stageName: chapter.stage?.title ?? DEFAULT_STAGE_DISPLAY_NAME,
+          outcome,
+        };
+        const nextRun = appendChapterResult(run, result);
+        ctx.navigate(
+          isFinal
+            ? { name: "story-ending", run: nextRun }
+            : { name: "story-part", run: nextRun },
+        );
+      },
+    },
+  });
 }
 
 /** バトル画面の共通実装です(再生ロジックはチーム戦・ロイヤルで完全に共有します)。 */
@@ -317,6 +394,16 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
     ]);
   }
 
+  // ストーリーモードの章として再生している場合は、ステージバナーの前に
+  // 「第N話」の章バナーを表示します
+  const chapterBannerEl =
+    setup.kind === "teams" && setup.story !== undefined
+      ? chapterBanner({
+          chapterIndex: setup.story.chapterIndex,
+          stageName: setup.stage?.title ?? null,
+        })
+      : null;
+
   /** キャラクターに対応する参加者情報を取り出します(欠落はデータ不正)。 */
   function participantOf(character: Character): BattleParticipant {
     const participant = byId[character.id];
@@ -331,6 +418,17 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
     className: "msg-window",
     attrs: { role: "log", "aria-live": "polite" },
   });
+  const { typeLine, skip } = createTypewriter({
+    logWindow,
+    sePlayer,
+    reducedMotion,
+    isAborted: () => aborted,
+  });
+  const messageAdvance = createMessageAdvance({ isAborted: () => aborted });
+  logWindow.addEventListener("click", () => {
+    skip();
+    messageAdvance.handleClick();
+  });
 
   const resultBanner = el("div", { className: "result-banner" });
 
@@ -343,13 +441,26 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
     aborted = true;
     ctx.navigate({ name: "home" });
   });
-  const rematchButton = el("button", {
-    className: "btn btn-primary",
-    text: "もう一度たたかう",
-    attrs: { type: "button", hidden: "" },
-  });
-  rematchButton.addEventListener("click", () => {
+  // ストーリーモードの決着後の遷移先で使う決着です(通常のチーム戦・
+  // ロイヤルでは使いません)。決着が確定するまでは null のままです。
+  let storyOutcome: StoryOutcome | null = null;
+
+  /**
+   * 決着後の「次へ」相当の操作です(通常戦は再戦、ストーリーモードは次章/
+   * エンディングへ)。rematchButton のクリックと、メッセージウィンドウの
+   * クリック送り・自動進行(ui/message-advance.ts)の両方から呼ばれます。
+   */
+  function advanceAfterBattle(): void {
     aborted = true;
+    if (setup.kind === "teams" && setup.story !== undefined) {
+      // 決着(storyOutcome)が確定してからボタンが表示されるため、
+      // ここに来た時点で null のままなのはデータ不正です
+      if (storyOutcome === null) {
+        throw new Error("ストーリーの決着が確定する前に次へ進もうとしました");
+      }
+      setup.story.onNext(storyOutcome);
+      return;
+    }
     ctx.navigate(
       setup.kind === "teams"
         ? {
@@ -360,6 +471,18 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
           }
         : { name: "royale", fighters: setup.fighters, stage: setup.stage },
     );
+  }
+
+  const rematchButton = el("button", {
+    className: "btn btn-primary",
+    text:
+      setup.kind === "teams" && setup.story !== undefined
+        ? setup.story.nextLabel
+        : "もう一度たたかう",
+    attrs: { type: "button", hidden: "" },
+  });
+  rematchButton.addEventListener("click", () => {
+    advanceAfterBattle();
   });
 
   // バトル中でもBGMを切り替えられるようにします(ONで即再生・OFFで即停止)
@@ -372,6 +495,7 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
   });
 
   screen.append(
+    ...(chapterBannerEl !== null ? [chapterBannerEl] : []),
     ...(stageBanner !== null ? [stageBanner] : []),
     stage,
     logWindow,
@@ -389,19 +513,32 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
   /** バトル全体を再生します。 */
   async function playBattle(): Promise<void> {
     const { events, winners, losers } = runSimulation();
-    // 前口上とセリフで共用するストーリー材料(舞台・因縁)を抽選します。
-    // 材料が毎試合変わることが、決定論的なモデルでの変化の源です。
-    // ステージを選択している場合は、抽選した舞台を選択中のステージ名で
-    // 上書きします(乱数消費順を変えないため、抽選自体は常に行います)
-    const storyIngredients = sampleStoryIngredients(Math.random, {
-      stage: setup.stage?.title,
-    });
+    // ストーリーモードの章として再生している場合は、決着が判明した時点で
+    // 決着後の「つぎへ」ボタンから使う結果を確定させます
+    if (setup.kind === "teams" && setup.story !== undefined) {
+      storyOutcome = judgeStoryOutcome(winners, teamHead(setup.firstTeam).id);
+    }
+    // 前口上とセリフで共用するストーリー材料(舞台・因縁)です。
+    // ストーリーモードの章として再生している場合は、ストーリーパート画面が
+    // 使ったものと同じ材料(setup.story.ingredients)を渡して世界観を揃えます。
+    // それ以外は通常どおり抽選します(材料が毎試合変わることが、決定論的な
+    // モデルでの変化の源です。ステージ選択時は抽選した舞台をステージ名で
+    // 上書きします。乱数消費順を変えないため、抽選自体は常に行います)
+    const storyIngredients =
+      setup.kind === "teams" && setup.story !== undefined
+        ? setup.story.ingredients
+        : sampleStoryIngredients(Math.random, { stage: setup.stage?.title });
     // 前口上(ストーリー)の生成は待ち時間を稼ぐため最初に開始し、
-    // 実況セッションの準備と並行させます
-    const storyPromise = generateBattleStory(storyPromptFor(storyIngredients));
+    // 実況セッションの準備と並行させます。ストーリーモードの章として
+    // 再生している場合は、ストーリーパート画面ですでに場面を語っているため
+    // 前口上の生成自体を行いません(null のままにします)
+    const storyPromise =
+      setup.kind === "teams" && setup.story !== undefined
+        ? null
+        : generateBattleStory(storyPromptFor(storyIngredients));
     // 表示前(セッション準備中など)に生成が失敗しても未処理エラーに
     // ならないよう先に握っておきます(失敗の表示は取得側の try で行います)
-    void storyPromise.catch(() => undefined);
+    void storyPromise?.catch(() => undefined);
     // 必殺技の決めゼリフは、必殺技を使う予定のキャラクター分だけ先行生成します
     // (バトル展開は事前確定しているため、再生前にまとめて仕込めます)
     const speechPromises = new Map<string, Promise<string>>();
@@ -506,18 +643,25 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
       return;
     }
 
-    // ゴングの前に前口上(ストーリー)を表示します(失敗は明示して続行します)
-    // ローディング行は前口上(または失敗の明示)と入れ替わりで取り除きます
-    try {
-      const story = await storyPromise;
+    // ゴングの前に前口上(ストーリー)を表示します(失敗は明示して続行します)。
+    // ストーリーモードの章として再生している場合は storyPromise が null のため、
+    // 前口上の生成・表示をまるごと省略します(ストーリーパート画面ですでに
+    // 場面を語っているため)。ローディング行は前口上(または失敗の明示、
+    // あるいは省略)と入れ替わりで取り除きます
+    if (storyPromise !== null) {
+      try {
+        const story = await storyPromise;
+        loadingLine.remove();
+        await typeLine(story, "story");
+      } catch (error) {
+        loadingLine.remove();
+        await typeLine(
+          `(ストーリーの生成に失敗したため、前口上なしで進行します: ${error instanceof Error ? error.message : String(error)})`,
+          "warn",
+        );
+      }
+    } else {
       loadingLine.remove();
-      await typeLine(story, "story");
-    } catch (error) {
-      loadingLine.remove();
-      await typeLine(
-        `(ストーリーの生成に失敗したため、前口上なしで進行します: ${error instanceof Error ? error.message : String(error)})`,
-        "warn",
-      );
     }
     if (aborted) {
       narrator?.destroy();
@@ -681,6 +825,15 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
       narrator.destroy();
     }
     rematchButton.hidden = false;
+    if (aborted) {
+      return;
+    }
+    // 決着の演出が出そろったので、以降はメッセージウィンドウのクリック・
+    // 無操作放置でも次へ進めるようにします
+    logWindow.append(messageAdvance.hint);
+    messageAdvance.ready(() => {
+      advanceAfterBattle();
+    });
   }
 
   /**
@@ -932,62 +1085,6 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
     }
     actorRoot.classList.add("lunge");
   }
-
-  /**
-   * メッセージウィンドウに1行タイプライター表示します。
-   *
-   * バックグラウンドタブでは Chrome が連鎖タイマーを強く間引く
-   * (最終的に毎分1回)ため、1文字ずつの待機には依存しません。
-   * - タブ非表示時: 即座に全文を表示します
-   * - 表示時: 経過時間から表示すべき文字数を計算し、タイマーが遅延しても
-   *   まとめて追いつくキャッチアップ方式で描画します
-   */
-  async function typeLine(
-    text: string,
-    kind: "system" | "narration" | "special" | "warn" | "story" | "speech",
-  ): Promise<void> {
-    const line = el("p", { className: `log-line log-${kind} typing` });
-    if (kind === "narration") {
-      line.append(el("span", { className: "log-mic", text: "実況" }));
-    }
-    if (kind === "story") {
-      line.append(
-        el("span", { className: "log-mic log-mic-story", text: "ストーリー" }),
-      );
-    }
-    const body = el("span");
-    line.append(body);
-    logWindow.append(line);
-    logWindow.scrollTop = logWindow.scrollHeight;
-    if (!reducedMotion && !document.hidden) {
-      // メッセージが流れている間だけ表示音をループ再生し、流れ終わったら止めます
-      // (長文でも音が途切れず、表示完了と同時に音も終わります)
-      const stopMessageSe = sePlayer.playLoop("message");
-      try {
-        const chars = [...text];
-        const startedAt = performance.now();
-        let shown = 0;
-        while (shown < chars.length) {
-          if (aborted || document.hidden) {
-            break;
-          }
-          await pacedWait(TYPE_INTERVAL_MS);
-          const elapsed = performance.now() - startedAt;
-          shown = Math.max(
-            shown + 1,
-            Math.min(chars.length, Math.floor(elapsed / TYPE_INTERVAL_MS)),
-          );
-          body.textContent = chars.slice(0, shown).join("");
-          logWindow.scrollTop = logWindow.scrollHeight;
-        }
-      } finally {
-        stopMessageSe();
-      }
-    }
-    body.textContent = text;
-    line.classList.remove("typing");
-    logWindow.scrollTop = logWindow.scrollHeight;
-  }
 }
 
 /** 必殺技イベント(決めゼリフ+カットインの対象)かどうかを判定します。 */
@@ -1182,16 +1279,4 @@ function fighterBlock(character: Character, frameClass: string): FighterBlock {
       root.classList.toggle("fighter-ko", snapshot.hp === 0);
     },
   };
-}
-
-/**
- * 演出用の待機です。タブが非表示の間はタイマーが強く間引かれ
- * バトルが数十分単位で停止してしまうため、非表示時は待たずに即座に
- * 解決します(バックグラウンドでもバトルを完走させる明示的な仕様です)。
- */
-function pacedWait(ms: number): Promise<void> {
-  if (document.hidden) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

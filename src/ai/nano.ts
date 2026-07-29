@@ -15,10 +15,13 @@ import {
 import { samplePassiveCandidates } from "./passives";
 import { sampleStageCandidates } from "./stages";
 import {
+  CHAPTER_SYSTEM_PROMPT,
   CHARACTER_SYSTEM_PROMPT,
+  ENDING_SYSTEM_PROMPT,
   NARRATION_SYSTEM_PROMPT,
   SPEECH_SYSTEM_PROMPT,
   STAGE_SYSTEM_PROMPT,
+  STORY_OPENING_SYSTEM_PROMPT,
   STORY_SYSTEM_PROMPT,
   buildCharacterPrompt,
   buildStagePrompt,
@@ -237,6 +240,35 @@ export async function generateBattleStory(prompt: string): Promise<string> {
  */
 export async function generateCharacterSpeech(prompt: string): Promise<string> {
   return generateOnce(SPEECH_SYSTEM_PROMPT, prompt);
+}
+
+/**
+ * ストーリーモードの章ナレーションを1回だけ生成します。
+ * @param prompt buildChapterNarrationPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateChapterNarration(
+  prompt: string,
+): Promise<string> {
+  return generateOnce(CHAPTER_SYSTEM_PROMPT, prompt);
+}
+
+/**
+ * ストーリーモードのエンディングを1回だけ生成します。
+ * @param prompt buildStoryEndingPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateStoryEnding(prompt: string): Promise<string> {
+  return generateOnce(ENDING_SYSTEM_PROMPT, prompt);
+}
+
+/**
+ * ストーリーモードの幕開け(プロローグ)を1回だけ生成します。
+ * @param prompt buildStoryOpeningPrompt(ai/prompts.ts)で組み立てたプロンプト
+ * @throws GeminiNanoUnavailableError この環境でモデルが利用できない場合
+ */
+export async function generateStoryOpening(prompt: string): Promise<string> {
+  return generateOnce(STORY_OPENING_SYSTEM_PROMPT, prompt);
 }
 
 /**

@@ -453,3 +453,86 @@ describe("renderHome: ステージの選択", () => {
     expect(screen.querySelectorAll(".stage-clickable")).toHaveLength(3);
   });
 });
+
+describe("renderHome: ストーリーモードの選択", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("保存ファイターが2体以下だとストーリーの形式ボタンが無効になる", () => {
+    seedManyCharacters(2);
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    const modeButton = findModeButton(screen, "ストーリー");
+    expect(modeButton.disabled).toBe(true);
+  });
+
+  it("保存ファイターが3体以上だとストーリーの形式ボタンが有効になる", () => {
+    seedManyCharacters(3);
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    const modeButton = findModeButton(screen, "ストーリー");
+    expect(modeButton.disabled).toBe(false);
+  });
+
+  it("ストーリーでは主人公を1体しかえらべない", () => {
+    seedManyCharacters(4);
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "ストーリー").click();
+    clickCard(screen, 0);
+    clickCard(screen, 1);
+
+    // 2枚目は選択されず、スロットバッジは1枚のまま
+    expect(screen.querySelectorAll(".slot-badge")).toHaveLength(1);
+    expect(screen.querySelector(".slot-badge")?.textContent).toBe("主人公");
+  });
+
+  it("主人公を選ぶと「ストーリーをはじめる」ボタンが有効になり、押すとプロローグ(story-opening)画面へ遷移する", () => {
+    const characters = seedManyCharacters(4);
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "ストーリー").click();
+    clickCard(screen, 0);
+
+    const startButton = [...screen.querySelectorAll("button")].find(
+      (node) => node.textContent === "ストーリーをはじめる",
+    );
+    if (startButton === undefined) {
+      throw new Error("ストーリーをはじめるボタンがみつかりません");
+    }
+    expect(startButton.disabled).toBe(false);
+    startButton.click();
+
+    expect(ctx.navigate).toHaveBeenCalledOnce();
+    const [call] = vi.mocked(ctx.navigate).mock.calls[0] ?? [];
+    expect(call?.name).toBe("story-opening");
+    if (call?.name !== "story-opening") {
+      throw new Error("想定外の遷移です");
+    }
+    expect(call.run.results).toEqual([]);
+    expect(call.run.plan.protagonist.id).toBe(characters[0]?.id);
+    // 主人公以外の全員(3体)が相手候補になり、5章より少ないため全員分の章になる
+    expect(call.run.plan.chapters).toHaveLength(3);
+  });
+
+  it("主人公を選ぶ前は「ストーリーをはじめる」ボタンが無効になっている", () => {
+    seedManyCharacters(4);
+    const ctx: AppContext = { navigate: vi.fn() };
+    const screen = renderHome(ctx);
+
+    findModeButton(screen, "ストーリー").click();
+
+    const startButton = [...screen.querySelectorAll("button")].find(
+      (node) => node.textContent === "ストーリーをはじめる",
+    );
+    if (startButton === undefined) {
+      throw new Error("ストーリーをはじめるボタンがみつかりません");
+    }
+    expect(startButton.disabled).toBe(true);
+  });
+});

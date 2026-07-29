@@ -6,8 +6,14 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  STORY_ENCOUNTERS,
+  STORY_FINAL_ENCOUNTERS,
+  STORY_QUESTS,
   STORY_RELATIONS,
   STORY_STAGES,
+  sampleEncounters,
+  sampleFinalEncounter,
+  sampleQuest,
   sampleStoryIngredients,
 } from "./story";
 import { sequenceRng } from "../testing/fixtures";
@@ -50,5 +56,59 @@ describe("sampleStoryIngredients", () => {
   it("overrideを渡さない場合は通常どおり舞台一覧から抽選される", () => {
     const ingredients = sampleStoryIngredients(sequenceRng([0, 0]), {});
     expect(ingredients.stage).toBe(STORY_STAGES[0]);
+  });
+});
+
+describe("sampleQuest", () => {
+  it("旅の目的が一覧の中から選ばれる", () => {
+    const quest = sampleQuest(sequenceRng([0.5]));
+    expect(STORY_QUESTS).toContain(quest);
+  });
+
+  it("乱数0では一覧の先頭が選ばれる(決定論的な抽選)", () => {
+    expect(sampleQuest(sequenceRng([0]))).toBe(STORY_QUESTS[0]);
+  });
+
+  it("乱数が範囲[0, 1)外の値を返した場合はエラーになる(Fail-Fast)", () => {
+    expect(() => sampleQuest(sequenceRng([1.2]))).toThrow(/乱数/);
+  });
+});
+
+describe("sampleEncounters", () => {
+  it("指定した件数だけ重複なしで返す", () => {
+    const encounters = sampleEncounters(3, sequenceRng([0, 0, 0]));
+    expect(encounters).toHaveLength(3);
+    expect(new Set(encounters).size).toBe(3);
+    for (const encounter of encounters) {
+      expect(STORY_ENCOUNTERS).toContain(encounter);
+    }
+  });
+
+  it("乱数0を注入すると一覧の先頭から順に選ばれる(決定論的な抽選)", () => {
+    const encounters = sampleEncounters(2, sequenceRng([0, 0]));
+    expect(encounters).toEqual([STORY_ENCOUNTERS[0], STORY_ENCOUNTERS[1]]);
+  });
+
+  it("乱数が範囲[0, 1)外の値を返した場合はエラーになる(Fail-Fast)", () => {
+    expect(() => sampleEncounters(2, sequenceRng([1.2]))).toThrow(/乱数/);
+  });
+});
+
+describe("sampleFinalEncounter", () => {
+  it("最終章の遭遇シチュエーションが専用の一覧の中から選ばれる", () => {
+    const encounter = sampleFinalEncounter(sequenceRng([0.5]));
+    expect(STORY_FINAL_ENCOUNTERS).toContain(encounter);
+    // 通常章の一覧とは別枠であることを確認する(最終章がふさわしい重みのある遭遇になるため)
+    expect(STORY_ENCOUNTERS).not.toContain(encounter);
+  });
+
+  it("乱数0では一覧の先頭が選ばれる(決定論的な抽選)", () => {
+    expect(sampleFinalEncounter(sequenceRng([0]))).toBe(
+      STORY_FINAL_ENCOUNTERS[0],
+    );
+  });
+
+  it("乱数が範囲[0, 1)外の値を返した場合はエラーになる(Fail-Fast)", () => {
+    expect(() => sampleFinalEncounter(sequenceRng([1.2]))).toThrow(/乱数/);
   });
 });

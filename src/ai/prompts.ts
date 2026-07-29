@@ -12,6 +12,7 @@ import {
 } from "../types";
 import { STAT_RANGES } from "./schema";
 import type { StoryIngredients } from "./story";
+import { ENDING_RANK_TONES, type StoryEndingRank, type StoryRecord } from "../story/plan";
 
 /** キャラクター生成セッションのシステムプロンプトです。 */
 export const CHARACTER_SYSTEM_PROMPT = [
@@ -382,4 +383,157 @@ export function buildResultPrompt(
     return `${firstName}と${secondName}の激闘は決着がつかず引き分けに終わりました。締めの実況をしてください。`;
   }
   return `${firstName}が${secondName}を打ち破って勝利しました。勝者を称える締めの実況をしてください。`;
+}
+
+/** 章ナレーション生成セッションのシステムプロンプトです(ストーリーモード専用)。 */
+export const CHAPTER_SYSTEM_PROMPT = [
+  "あなたは連続する冒険物語を語るナレーターです。",
+  "これまでのあらすじを踏まえ、今回の場面を日本語で2〜3文で語ってください。",
+  "本文のみを出力し、前置きや引用符は不要です。",
+].join("");
+
+/** エンディング生成セッションのシステムプロンプトです(ストーリーモード専用)。 */
+export const ENDING_SYSTEM_PROMPT = [
+  "あなたは冒険物語の結末を語るナレーターです。",
+  "旅の全記録を踏まえ、物語の結末を日本語で4〜5文で語ってください。",
+  "本文のみを出力し、前置きや引用符は不要です。",
+].join("");
+
+/**
+ * ストーリーモードの幕開け(プロローグ)ナレーション生成セッションの
+ * システムプロンプトです。章ナレーション(CHAPTER_SYSTEM_PROMPT)より
+ * 少し長め(3〜4文)にし、主人公と旅の目的をしっかり印象づけます。
+ */
+export const STORY_OPENING_SYSTEM_PROMPT = [
+  "あなたは連続する冒険物語を語るナレーターです。",
+  "物語の幕開けとして、主人公の旅立ちの場面を日本語で3〜4文で語ってください。",
+  "本文のみを出力し、前置きや引用符は不要です。",
+].join("");
+
+/**
+ * 章ナレーション用のプロンプトを組み立てます(ストーリーモード専用)。
+ * これまでのあらすじ・直近の流れ(momentum)を渡すことで、
+ * 章をまたいだ物語の連続性を持たせます。バトルはこのあとに再生するため、
+ * 前口上(buildStoryPrompt)と同様に勝敗のネタバレを明示的に禁止します。
+ */
+export function buildChapterNarrationPrompt(params: {
+  protagonist: StoryFighter;
+  opponent: StoryFighter;
+  /** 主人公が旅に出た目的(story/plan.ts の StoryPlan.quest) */
+  quest: string;
+  /** この章の遭遇シチュエーション(story/plan.ts の StoryChapterPlan.encounter) */
+  encounter: string;
+  stageName: string;
+  /** 1始まりの章番号 */
+  chapterIndex: number;
+  /** 全体の章数 */
+  chapterCount: number;
+  /** これまでの章のあらすじ(story/plan.ts の buildStorySummaryLines の結果) */
+  summaryLines: readonly string[];
+  /** 直近の流れ(story/plan.ts の describeMomentum の結果) */
+  momentum: string;
+  /** 三幕構成における語り口の指示(story/plan.ts の ACT_NARRATION_TONES) */
+  tone: string;
+}): string {
+  const {
+    protagonist,
+    opponent,
+    quest,
+    encounter,
+    stageName,
+    chapterIndex,
+    chapterCount,
+    summaryLines,
+    momentum,
+    tone,
+  } = params;
+  return [
+    `連続する冒険物語の第${chapterIndex}話(全${chapterCount}話)の場面を2〜3文で書いてください。`,
+    tone,
+    `主人公:「${protagonist.title}」こと ${protagonist.name}。${protagonist.description}`,
+    `主人公の旅の目的: ${quest}`,
+    ...(summaryLines.length > 0
+      ? ["これまでのあらすじ:", ...summaryLines, `直近の流れ: ${momentum}`]
+      : ["これは旅の最初の戦いです。"]),
+    `舞台: ${stageName}`,
+    `今回立ちはだかるのは「${opponent.title}」こと ${opponent.name}(${encounter})。${opponent.description}`,
+    "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
+  ].join("\n");
+}
+
+/**
+ * ストーリーモードの幕開け(プロローグ)用のプロンプトを組み立てます。
+ * まだ相手が登場しない場面のため、主人公の設定と旅の目的だけを渡します。
+ * バトルはこのあとに再生するため、勝敗のネタバレを明示的に禁止します。
+ */
+export function buildStoryOpeningPrompt(
+  protagonist: StoryFighter,
+  quest: string,
+): string {
+  return [
+    "連続する冒険物語の幕開けの場面を3〜4文で書いてください。",
+    `主人公:「${protagonist.title}」こと ${protagonist.name}。${protagonist.description}`,
+    `主人公の旅の目的: ${quest}`,
+    "まだ誰とも出会っていない、旅立ちの場面です。",
+    "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
+  ].join("\n");
+}
+
+/**
+ * 章の中で相手が主人公にかけるセリフ用のプロンプトを組み立てます(ストーリーモード専用)。
+ * 直前に生成した章ナレーションを渡し、その場面に合ったセリフにします。
+ */
+export function buildChapterOpponentLinePrompt(
+  opponent: StoryFighter,
+  protagonistName: string,
+  narration: string,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    ...speechContextLines(opponent, ingredients),
+    `いま${protagonistName}と対峙しています。場面の説明: ${narration}`,
+    `${protagonistName}に向けたセリフを20文字以内で1つ書いてください。`,
+    "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
+  ].join("\n");
+}
+
+/**
+ * 相手のセリフに対する主人公の返答用のプロンプトを組み立てます(ストーリーモード専用)。
+ * 相手のセリフ本文を渡し、掛け合いの会話になるようにします。
+ */
+export function buildChapterProtagonistLinePrompt(
+  protagonist: StoryFighter,
+  opponentName: string,
+  opponentLine: string,
+  ingredients: StoryIngredients,
+): string {
+  return [
+    ...speechContextLines(protagonist, ingredients),
+    `${opponentName}が「${opponentLine}」と言いました。`,
+    "この言葉への返答のセリフを20文字以内で1つ書いてください。",
+    "バトルはこれから行われるため、勝敗や結末には絶対に触れないでください。",
+  ].join("\n");
+}
+
+/**
+ * ストーリーモードのエンディング用プロンプトを組み立てます。
+ * 旅の全記録(あらすじ・戦績)とランクごとの語り口(ENDING_RANK_TONES)を渡します。
+ */
+export function buildStoryEndingPrompt(params: {
+  protagonist: StoryFighter;
+  quest: string;
+  summaryLines: readonly string[];
+  record: StoryRecord;
+  rank: StoryEndingRank;
+}): string {
+  const { protagonist, quest, summaryLines, record, rank } = params;
+  return [
+    `主人公:「${protagonist.title}」こと ${protagonist.name}。${protagonist.description}`,
+    `旅の目的: ${quest}`,
+    "これまでのあらすじ:",
+    ...summaryLines,
+    `最終成績: ${record.wins}勝${record.losses}敗${record.draws}分`,
+    ENDING_RANK_TONES[rank],
+    "この結末を語ってください。",
+  ].join("\n");
 }

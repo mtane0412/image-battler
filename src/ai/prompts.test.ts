@@ -5,6 +5,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCharacterPrompt,
+  buildChapterNarrationPrompt,
+  buildChapterOpponentLinePrompt,
+  buildChapterProtagonistLinePrompt,
   buildDefeatSpeechPrompt,
   buildIntroPrompt,
   buildNarrationPrompt,
@@ -14,10 +17,13 @@ import {
   buildRoyaleStoryPrompt,
   buildSpecialMoveSpeechPrompt,
   buildStagePrompt,
+  buildStoryEndingPrompt,
+  buildStoryOpeningPrompt,
   buildStoryPrompt,
   buildVictorySpeechPrompt,
   formatOpponentsLabel,
 } from "./prompts";
+import { ACT_NARRATION_TONES, ENDING_RANK_TONES } from "../story/plan";
 
 describe("buildCharacterPrompt", () => {
   it("キャラクター名が含まれる", () => {
@@ -462,5 +468,224 @@ describe("buildRoyaleStoryPrompt / buildRoyaleIntroPrompt / buildRoyaleResultPro
     const prompt = buildRoyaleResultPrompt(null, 4);
     expect(prompt).toContain("引き分け");
     expect(prompt).toContain("4人");
+  });
+});
+
+describe("buildChapterNarrationPrompt", () => {
+  const protagonist = {
+    name: "もふ吉",
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+  };
+  const opponent = {
+    name: "がぶ太",
+    title: "鋼鉄の甘噛み犬",
+    description: "なんでも噛んでしまう犬の騎士です",
+  };
+
+  it("主人公・相手・旅の目的・遭遇・舞台・章番号が含まれる", () => {
+    const prompt = buildChapterNarrationPrompt({
+      protagonist,
+      opponent,
+      quest: "奪われた宝物を取り戻すため",
+      encounter: "旅の途中の道をふさぐ用心棒として",
+      stageName: "満月の闘技場",
+      chapterIndex: 2,
+      chapterCount: 5,
+      summaryLines: ["第1話: 炎の谷でぴよ助に勝利した。"],
+      momentum: "直前の戦いに勝利した",
+      tone: ACT_NARRATION_TONES.act2,
+    });
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("がぶ太");
+    expect(prompt).toContain("奪われた宝物を取り戻すため");
+    expect(prompt).toContain("旅の途中の道をふさぐ用心棒として");
+    expect(prompt).toContain("満月の闘技場");
+    expect(prompt).toContain("第2話");
+    expect(prompt).toContain("全5話");
+  });
+
+  it("これまでのあらすじと直近の流れが含まれる(物語の連続性を持たせるため)", () => {
+    const prompt = buildChapterNarrationPrompt({
+      protagonist,
+      opponent,
+      quest: "奪われた宝物を取り戻すため",
+      encounter: "旅の途中の道をふさぐ用心棒として",
+      stageName: "満月の闘技場",
+      chapterIndex: 2,
+      chapterCount: 5,
+      summaryLines: ["第1話: 炎の谷でぴよ助に勝利した。"],
+      momentum: "直前の戦いに勝利した",
+      tone: ACT_NARRATION_TONES.act2,
+    });
+    expect(prompt).toContain("第1話: 炎の谷でぴよ助に勝利した。");
+    expect(prompt).toContain("直前の戦いに勝利した");
+  });
+
+  it("第1話(あらすじが空)のときは旅の最初の戦いであることが伝わる", () => {
+    const prompt = buildChapterNarrationPrompt({
+      protagonist,
+      opponent,
+      quest: "奪われた宝物を取り戻すため",
+      encounter: "旅の途中の道をふさぐ用心棒として",
+      stageName: "満月の闘技場",
+      chapterIndex: 1,
+      chapterCount: 5,
+      summaryLines: [],
+      momentum: "まだ戦いは始まっていない",
+      tone: ACT_NARRATION_TONES.act1,
+    });
+    expect(prompt).toContain("最初の戦い");
+  });
+
+  it("勝敗のネタバレを禁止する指示が含まれる(バトル再生前に表示するため)", () => {
+    const prompt = buildChapterNarrationPrompt({
+      protagonist,
+      opponent,
+      quest: "奪われた宝物を取り戻すため",
+      encounter: "旅の途中の道をふさぐ用心棒として",
+      stageName: "満月の闘技場",
+      chapterIndex: 1,
+      chapterCount: 5,
+      summaryLines: [],
+      momentum: "まだ戦いは始まっていない",
+      tone: ACT_NARRATION_TONES.act1,
+    });
+    expect(prompt).toContain("勝敗");
+  });
+
+  it("渡した幕(act)のトーン指示が含まれる(三幕構成の演出)", () => {
+    const prompt = buildChapterNarrationPrompt({
+      protagonist,
+      opponent,
+      quest: "奪われた宝物を取り戻すため",
+      encounter: "旅の終着点で待ち構えていた最大の壁として",
+      stageName: "満月の闘技場",
+      chapterIndex: 5,
+      chapterCount: 5,
+      summaryLines: ["第1話: 炎の谷でぴよ助に勝利した。"],
+      momentum: "直前の戦いに勝利した",
+      tone: ACT_NARRATION_TONES.act3,
+    });
+    expect(prompt).toContain(ACT_NARRATION_TONES.act3);
+  });
+});
+
+describe("buildChapterOpponentLinePrompt / buildChapterProtagonistLinePrompt", () => {
+  const protagonist = {
+    name: "もふ吉",
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+  };
+  const opponent = {
+    name: "がぶ太",
+    title: "鋼鉄の甘噛み犬",
+    description: "なんでも噛んでしまう犬の騎士です",
+  };
+  const ingredients = { stage: "満月の廃神殿", relation: "宿命のライバル" };
+
+  it("相手のセリフ用プロンプトには相手のキャラ設定・場面のナレーション・文字数上限・ネタバレ禁止が含まれる", () => {
+    const prompt = buildChapterOpponentLinePrompt(
+      opponent,
+      protagonist.name,
+      "峠を越えた一行の前に、炎をまとう獣が立ちはだかった。",
+      ingredients,
+    );
+    expect(prompt).toContain("がぶ太");
+    expect(prompt).toContain("鋼鉄の甘噛み犬");
+    expect(prompt).toContain(
+      "峠を越えた一行の前に、炎をまとう獣が立ちはだかった。",
+    );
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("20文字");
+    expect(prompt).toContain("勝敗");
+  });
+
+  it("主人公のセリフ用プロンプトには主人公のキャラ設定・相手のセリフ・文字数上限が含まれ、返答であることが伝わる", () => {
+    const prompt = buildChapterProtagonistLinePrompt(
+      protagonist,
+      opponent.name,
+      "ここから先は 通さんぞ!",
+      ingredients,
+    );
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("深淵の眠り猫");
+    expect(prompt).toContain("がぶ太");
+    expect(prompt).toContain("ここから先は 通さんぞ!");
+    expect(prompt).toContain("20文字");
+    expect(prompt).toContain("返答");
+  });
+});
+
+describe("buildStoryOpeningPrompt", () => {
+  const protagonist = {
+    name: "もふ吉",
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+  };
+
+  it("主人公のキャラ設定と旅の目的が含まれる", () => {
+    const prompt = buildStoryOpeningPrompt(
+      protagonist,
+      "奪われた宝物を取り戻すため",
+    );
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("深淵の眠り猫");
+    expect(prompt).toContain("よく寝る猫の戦士です");
+    expect(prompt).toContain("奪われた宝物を取り戻すため");
+  });
+
+  it("まだ誰とも出会っていない旅立ちの場面であることが伝わる", () => {
+    const prompt = buildStoryOpeningPrompt(
+      protagonist,
+      "奪われた宝物を取り戻すため",
+    );
+    expect(prompt).toContain("誰とも出会っていない");
+  });
+
+  it("勝敗のネタバレを禁止する指示が含まれる(バトル再生前に表示するため)", () => {
+    const prompt = buildStoryOpeningPrompt(
+      protagonist,
+      "奪われた宝物を取り戻すため",
+    );
+    expect(prompt).toContain("勝敗");
+  });
+});
+
+describe("buildStoryEndingPrompt", () => {
+  const protagonist = {
+    name: "もふ吉",
+    title: "深淵の眠り猫",
+    description: "よく寝る猫の戦士です",
+  };
+
+  it("主人公・旅の目的・あらすじ・戦績・ランクのトーンが含まれる", () => {
+    const prompt = buildStoryEndingPrompt({
+      protagonist,
+      quest: "奪われた宝物を取り戻すため",
+      summaryLines: [
+        "第1話: 満月の闘技場でがぶ太に勝利した。",
+        "第2話: 炎の谷でぴよ助に敗れた。",
+      ],
+      record: { wins: 1, losses: 1, draws: 0, total: 2 },
+      rank: "normal",
+    });
+    expect(prompt).toContain("もふ吉");
+    expect(prompt).toContain("奪われた宝物を取り戻すため");
+    expect(prompt).toContain("第1話: 満月の闘技場でがぶ太に勝利した。");
+    expect(prompt).toContain("第2話: 炎の谷でぴよ助に敗れた。");
+    expect(prompt).toContain("1勝1敗0分");
+    expect(prompt).toContain(ENDING_RANK_TONES.normal);
+  });
+
+  it("全勝(perfect)ランクのトーンが含まれる", () => {
+    const prompt = buildStoryEndingPrompt({
+      protagonist,
+      quest: "奪われた宝物を取り戻すため",
+      summaryLines: ["第1話: 満月の闘技場でがぶ太に勝利した。"],
+      record: { wins: 1, losses: 0, draws: 0, total: 1 },
+      rank: "perfect",
+    });
+    expect(prompt).toContain(ENDING_RANK_TONES.perfect);
   });
 });

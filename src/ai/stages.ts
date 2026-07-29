@@ -8,6 +8,7 @@
  */
 import type { StageEventId, StageTraitId } from "../types";
 import { STAGE_EVENT_IDS, STAGE_TRAIT_IDS } from "../types";
+import { sampleWithoutReplacement } from "./sampling";
 
 /** 1回の生成でモデルに提示するステージ特性候補の数です。 */
 export const STAGE_TRAIT_CANDIDATE_COUNT = 2;
@@ -18,37 +19,6 @@ export const STAGE_EVENT_CANDIDATE_COUNT = 2;
 export interface StageCandidates {
   traits: StageTraitId[];
   events: StageEventId[];
-}
-
-/**
- * プールから重複なく count 件を無作為に抽選します。
- * @throws Error 乱数が範囲[0, 1)外の値を返した場合(Fail-Fast)
- */
-function sampleWithoutReplacement<T>(
-  pool: readonly T[],
-  count: number,
-  rng: () => number,
-): T[] {
-  const remaining = [...pool];
-  const picked: T[] = [];
-  while (picked.length < count) {
-    // インデックス計算の前に乱数値そのものを検証します([0, 1) 以外は不正)
-    const value = rng();
-    if (!Number.isFinite(value) || value < 0 || value >= 1) {
-      throw new Error(
-        `ステージ候補の抽選に失敗しました(乱数が範囲[0, 1)外です: ${value})`,
-      );
-    }
-    const index = Math.floor(value * remaining.length);
-    const [id] = remaining.splice(index, 1);
-    if (id === undefined) {
-      throw new Error(
-        `ステージ候補の抽選に失敗しました(不正なインデックス: ${index})`,
-      );
-    }
-    picked.push(id);
-  }
-  return picked;
 }
 
 /**
@@ -65,11 +35,13 @@ export function sampleStageCandidates(
       STAGE_TRAIT_IDS,
       STAGE_TRAIT_CANDIDATE_COUNT,
       rng,
+      "ステージ候補",
     ),
     events: sampleWithoutReplacement(
       STAGE_EVENT_IDS,
       STAGE_EVENT_CANDIDATE_COUNT,
       rng,
+      "ステージ候補",
     ),
   };
 }

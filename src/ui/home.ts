@@ -1,12 +1,16 @@
 /**
  * @file ホーム画面です。保存済みファイターの一覧・バトル形式(1vs1 / 2vs2 /
- * バトルロイヤル)の切り替え・対戦メンバーの選択・バトル開始・キャラクター削除・
- * Gemini Nano の利用可否表示を行います。
+ * バトルロイヤル / ストーリー)の切り替え・対戦メンバーの選択・バトル開始・
+ * キャラクター削除・Gemini Nano の利用可否表示を行います。
  *
  * チーム編成: カードを選んだ順に 1P チーム → 2P チームへ割り当てます
  * (1vs1 は各チーム1体、2vs2 は各チーム2体です)。
  * バトルロイヤル(完全FFA): チームはなく、カードを選んだ順がそのまま
  * エントリー順になります(3〜5人)。
+ * ストーリー: 主人公を1体だけ選び、残りの保存済みファイターがランダムな
+ * 順番で立ちはだかります(story/plan.ts の buildStoryPlan)。相手が
+ * STORY_MIN_OPPONENTS 体に満たない(保存ファイターが3体未満の)場合は
+ * 形式ボタン自体を無効にします。
  */
 import type { Character, Stage } from "../types";
 import {
@@ -21,23 +25,33 @@ import {
   loadStages,
 } from "../storage/stage-repository";
 import { checkNanoAvailability } from "../ai/nano";
+import { buildStoryPlan, STORY_MIN_OPPONENTS } from "../story/plan";
 import { characterCard, stageCard } from "./card";
 import { bgmToggleButton } from "./bgm-toggle";
 import { el } from "./dom";
 import type { AppContext } from "./navigation";
 
-/** バトル形式です。チーム戦(1vs1 / 2vs2)とバトルロイヤル(完全FFA)があります。 */
-type BattleMode = "1v1" | "2v2" | "royale";
+/**
+ * バトル形式です。チーム戦(1vs1 / 2vs2)・バトルロイヤル(完全FFA)・
+ * ストーリー(主人公1体 vs 連戦)があります。
+ */
+type BattleMode = "1v1" | "2v2" | "royale" | "story";
 
 /** バトルロイヤルの最小参加人数です。 */
 const ROYALE_MIN_FIGHTERS = 3;
 /** バトルロイヤルの最大参加人数です(参加人数を拡張する場合はここを変えます)。 */
 const ROYALE_MAX_FIGHTERS = 5;
+/** ストーリーモードを選べる最小の保存ファイター数です(主人公1体+相手最小人数)。 */
+const STORY_MIN_CHARACTERS = STORY_MIN_OPPONENTS + 1;
 
-/** バトル形式ごとの編成ルールです(チーム戦は1チームの人数、ロイヤルは参加人数の範囲)。 */
+/**
+ * バトル形式ごとの編成ルールです(チーム戦は1チームの人数、ロイヤルは
+ * 参加人数の範囲、ストーリーは主人公1体だけを選びます)。
+ */
 type ModeConfig =
   | { label: string; kind: "teams"; teamSize: number }
-  | { label: string; kind: "royale"; minFighters: number; maxFighters: number };
+  | { label: string; kind: "royale"; minFighters: number; maxFighters: number }
+  | { label: string; kind: "story" };
 
 /** バトル形式ごとの設定(切り替えボタンのラベルと編成ルール)です。 */
 const MODE_CONFIG = {
@@ -49,6 +63,7 @@ const MODE_CONFIG = {
     minFighters: ROYALE_MIN_FIGHTERS,
     maxFighters: ROYALE_MAX_FIGHTERS,
   },
+  story: { label: "ストーリー", kind: "story" },
 } as const satisfies Record<BattleMode, ModeConfig>;
 
 /** ホーム画面を描画します。 */
@@ -127,8 +142,12 @@ export function renderHome(ctx: AppContext): HTMLElement {
   // 現在のバトル形式です(切り替えると選択はリセットされます)
   let mode: BattleMode = "1v1";
   // 対戦させるキャラクターの選択状態です
-  // (チーム戦では選択順に 1Pチーム → 2Pチーム、ロイヤルでは選択順がエントリー順です)
+  // (チーム戦では選択順に 1Pチーム → 2Pチーム、ロイヤルでは選択順がエントリー順、
+  // ストーリーは1体だけ選び主人公になります)
   const selectedIds: string[] = [];
+  // ストーリーモードを選べるかどうかです(保存ファイターが少ないと
+  // 主人公以外の相手が最小人数に満たないため、形式ボタン自体を無効にします)
+  const storyModeAvailable = characters.length >= STORY_MIN_CHARACTERS;
 
   /** 現在のバトル形式の編成ルールを返します。 */
   function config(): ModeConfig {
@@ -138,9 +157,13 @@ export function renderHome(ctx: AppContext): HTMLElement {
   /** 現在のバトル形式で選択できるカードの上限枚数を返します。 */
   function maxSelectable(): number {
     const current = config();
-    return current.kind === "teams"
-      ? current.teamSize * 2
-      : current.maxFighters;
+    if (current.kind === "teams") {
+      return current.teamSize * 2;
+    }
+    if (current.kind === "royale") {
+      return current.maxFighters;
+    }
+    return 1;
   }
 
   /**
@@ -153,21 +176,25 @@ export function renderHome(ctx: AppContext): HTMLElement {
 
   /**
    * 選択スロットのバッジ表示(種別とラベル)を返します。
-   * チーム戦は所属チーム(1P / 2P)、ロイヤルはエントリー番号(No.1〜)です。
+   * チーム戦は所属チーム(1P / 2P)、ロイヤルはエントリー番号(No.1〜)、
+   * ストーリーは「主人公」固定です。
    */
   function slotBadgeOf(slot: number): {
-    kind: "p1" | "p2" | "royale";
+    kind: "p1" | "p2" | "royale" | "story";
     text: string;
   } {
     const current = config();
     if (current.kind === "royale") {
       return { kind: "royale", text: `No.${slot + 1}` };
     }
+    if (current.kind === "story") {
+      return { kind: "story", text: "主人公" };
+    }
     const team = teamOfSlot(slot, current.teamSize);
     return { kind: team, text: team === "p1" ? "1P" : "2P" };
   }
 
-  // バトル形式(1vs1 / 2vs2 / バトルロイヤル)の切り替えボタンです
+  // バトル形式(1vs1 / 2vs2 / バトルロイヤル / ストーリー)の切り替えボタンです
   const modeButtons = new Map<BattleMode, HTMLButtonElement>();
   // 選択状況のヒント(「カードを2枚えらぶと〜」等)です。vs-panel(バトルスタートの
   // バー)側に置くと文言の長さで vs-panel-action の幅が変わりバトルスタートの
@@ -184,6 +211,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
       makeModeButton("1v1"),
       makeModeButton("2v2"),
       makeModeButton("royale"),
+      makeModeButton("story"),
       vsHint,
     ],
   );
@@ -201,6 +229,10 @@ export function renderHome(ctx: AppContext): HTMLElement {
       () => switchMode(value),
     );
     node.setAttribute("aria-pressed", value === mode ? "true" : "false");
+    if (value === "story" && !storyModeAvailable) {
+      node.disabled = true;
+      node.title = `ストーリーはファイターが${STORY_MIN_CHARACTERS}体以上ひつようです`;
+    }
     modeButtons.set(value, node);
     return node;
   }
@@ -458,7 +490,11 @@ export function renderHome(ctx: AppContext): HTMLElement {
       renderRoyalePanel(current);
       return;
     }
-    vsPanel.classList.remove("vs-panel-royale");
+    if (current.kind === "story") {
+      renderStoryPanel();
+      return;
+    }
+    vsPanel.classList.remove("vs-panel-royale", "vs-panel-story");
     const { firstTeam, secondTeam } = selectedTeams(current.teamSize);
     const ready =
       firstTeam.length === current.teamSize &&
@@ -502,6 +538,7 @@ export function renderHome(ctx: AppContext): HTMLElement {
     minFighters: number;
     maxFighters: number;
   }): void {
+    vsPanel.classList.remove("vs-panel-story");
     vsPanel.classList.add("vs-panel-royale");
     const fighters = selectedCharacters();
     // 上限は選択時に maxSelectable で制限済みのため、下限だけ確認します
@@ -524,6 +561,50 @@ export function renderHome(ctx: AppContext): HTMLElement {
       el("div", { className: "vs-panel-action" }, [
         el("div", { className: "vs-panel-buttons" }, [
           stageIndicator(),
+          startButton,
+          bgmToggleButton(),
+        ]),
+      ]),
+    );
+  }
+
+  /**
+   * ストーリーモードの編成パネルを描画します。主人公を1体だけ選ぶスロットと
+   * 「ストーリーをはじめる」ボタンだけを表示します。相手・ステージは
+   * バトル開始時にランダムに決まるため、ステージ選択(stageIndicator)は
+   * 表示せず、その旨のヒントを出します。
+   */
+  function renderStoryPanel(): void {
+    vsPanel.classList.remove("vs-panel-royale");
+    vsPanel.classList.add("vs-panel-story");
+    const protagonist = selectedCharacters()[0];
+    const ready = protagonist !== undefined;
+    const startButton = button(
+      "ストーリーをはじめる",
+      "btn btn-primary btn-large",
+      () => {
+        if (protagonist === undefined) {
+          return;
+        }
+        const others = characters.filter((c) => c.id !== protagonist.id);
+        const plan = buildStoryPlan(protagonist, others, stages);
+        ctx.navigate({ name: "story-opening", run: { plan, results: [] } });
+      },
+    );
+    startButton.disabled = !ready;
+    vsHint.textContent = ready
+      ? "じゅんびかんりょう!"
+      : "しゅじんこうを1体えらぶとストーリーをはじめられます";
+    vsPanel.replaceChildren(
+      el("div", { className: "vs-story-entry" }, [
+        vsSlot(protagonist, "story"),
+      ]),
+      el("p", {
+        className: "vs-story-random-hint",
+        text: "相手とステージはランダムに決まります",
+      }),
+      el("div", { className: "vs-panel-action" }, [
+        el("div", { className: "vs-panel-buttons" }, [
           startButton,
           bgmToggleButton(),
         ]),
@@ -554,11 +635,12 @@ function vsSide(
 
 /**
  * VSパネルの1スロットを描画します。
- * variant はスロットの見た目(1Pチーム / 2Pチーム / ロイヤルのエントリー)です。
+ * variant はスロットの見た目(1Pチーム / 2Pチーム / ロイヤルのエントリー /
+ * ストーリーの主人公)です。
  */
 function vsSlot(
   character: Character | undefined,
-  variant: "p1" | "p2" | "royale",
+  variant: "p1" | "p2" | "royale" | "story",
 ): HTMLElement {
   if (character === undefined) {
     return el("div", { className: `vs-slot vs-slot-${variant} vs-slot-empty` }, [
