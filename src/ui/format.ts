@@ -85,6 +85,24 @@ export function describeEvent(
       return event.announce
         ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}は ${AILMENT_LABELS[event.ailment]}じょうたいに なった!`
         : `${actor}は ${AILMENT_LABELS[event.ailment]}じょうたいに なった!`;
+    case "stage-mp-drain":
+      return event.announce
+        ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}の MPが ${event.drained} へった!`
+        : `${actor}の MPが ${event.drained} へった!`;
+    case "stage-buff": {
+      // attack-up は attackGain のみ、defense-down は defenseGain のみが非ゼロです
+      const effect =
+        event.attackGain > 0
+          ? `こうげきが ぐーんと あがった`
+          : `ぼうぎょが がくっと さがった`;
+      return event.announce
+        ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}の ${effect}!`
+        : `${actor}の ${effect}!`;
+    }
+    case "stage-cure":
+      return event.announce
+        ? `ステージこうか「${event.eventName}」が はつどうした! ${actor}の ${AILMENT_LABELS[event.ailment]}が なおった!`
+        : `${actor}の ${AILMENT_LABELS[event.ailment]}が なおった!`;
   }
 }
 

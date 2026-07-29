@@ -1060,10 +1060,13 @@ function renderBattleScreen(ctx: AppContext, setup: BattleSetup): HTMLElement {
       case "ailment-confusion":
       case "stage-damage":
       case "stage-ailment":
+      case "stage-mp-drain":
         actor.root.classList.add("shake");
         break;
       case "stage-heal":
       case "stage-mp":
+      case "stage-buff":
+      case "stage-cure":
         actor.root.classList.add("flash");
         break;
       case "ailment-skip":
@@ -1195,6 +1198,9 @@ function narrationParamsFor(
     case "stage-heal":
     case "stage-mp":
     case "stage-ailment":
+    case "stage-mp-drain":
+    case "stage-buff":
+    case "stage-cure":
       // ステージ特殊イベントは全員に平等な「場の効果」であり、特定の一人へ向けた
       // 実況にはなじまないため実況しません(メカニカルログのみで伝えます)。
       return null;
@@ -1229,6 +1235,9 @@ function logKindFor(event: BattleEvent): "system" | "special" {
     case "stage-heal":
     case "stage-mp":
     case "stage-ailment":
+    case "stage-mp-drain":
+    case "stage-buff":
+    case "stage-cure":
       // 告知行(そのラウンドで最初に効果を受けた対象)だけ強調表示します
       return event.announce ? "special" : "system";
     default:

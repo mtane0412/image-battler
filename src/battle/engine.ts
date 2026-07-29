@@ -200,6 +200,18 @@ const STAGE_EVENT_DAMAGE_RATIO = 1 / 10;
 const STAGE_EVENT_HEAL_RATIO = 1 / 10;
 /** ステージイベント mana-restore の回復量(最大MPに掛ける) */
 const STAGE_EVENT_MANA_RESTORE_RATIO = 1 / 2;
+/** ステージ特性 defense-up の防御力加算 */
+const STAGE_TRAIT_DEFENSE_BONUS = 10;
+/** ステージ特性 damage-up の被ダメージ倍率 */
+const STAGE_TRAIT_DAMAGE_UP_MULTIPLIER = 1.3;
+/** ステージ特性 special-boost の必殺技発動率加算 */
+const STAGE_TRAIT_SPECIAL_TRIGGER_BONUS = 0.2;
+/** ステージ特性 crit-damage-up のクリティカル倍率加算 */
+const STAGE_TRAIT_CRIT_MULTIPLIER_BONUS = 0.5;
+/** ステージイベント mana-drain のMP減少量(最大MPに掛ける) */
+const STAGE_EVENT_MANA_DRAIN_RATIO = 1 / 2;
+/** ステージイベント attack-up・defense-down の増減量 */
+const STAGE_EVENT_BUFF_AMOUNT = 10;
 
 /**
  * ステージ特性がバトル計算に与える一律の修正値です。
@@ -210,17 +222,24 @@ interface StageModifiers {
   /** 攻撃力の倍率(attack-up) */
   attackMul: number;
   /**
-   * 被ダメージの倍率(damage-cut)。
-   * 適用範囲は通常攻撃・special-attack・special-ailment・counter の
-   * 4箇所のみです。毒/やけどのスリップダメージとステージイベント damage の
-   * ダメージには意図的に適用しません(damage-cut は「攻撃」に対する防御力で
-   * あり、環境由来のダメージを軽減する効果ではないため)。
+   * 被ダメージの倍率(damage-cut・damage-up)。
+   * 適用範囲は通常攻撃・special-attack・special-ailment・counter・drain・
+   * all-attack の各直接ダメージのみです。毒/やけどのスリップダメージと
+   * ステージイベント damage のダメージには意図的に適用しません(この倍率は
+   * 「攻撃」に対する防御力・脆弱性であり、環境由来のダメージを増減する
+   * 効果ではないため)。damageMultiplierFor() 経由で適用します。
    */
   damageTakenMul: number;
   /** クリティカル率への加算(crit-up) */
   critRateAdd: number;
   /** 行動後MP回復量への加算(mp-regen-up) */
   mpRegenAdd: number;
+  /** 実効防御力への加算(defense-up) */
+  defenseAdd: number;
+  /** 必殺技発動率への加算(special-boost) */
+  specialTriggerAdd: number;
+  /** クリティカル時のダメージ倍率への加算(crit-damage-up) */
+  critMultiplierAdd: number;
 }
 
 /** 効果のないステージ(デフォルトステージ)の修正値です。 */
@@ -229,6 +248,9 @@ const DEFAULT_STAGE_MODIFIERS: StageModifiers = {
   damageTakenMul: 1,
   critRateAdd: 0,
   mpRegenAdd: 0,
+  defenseAdd: 0,
+  specialTriggerAdd: 0,
+  critMultiplierAdd: 0,
 };
 
 /** stage からバトル計算用の StageModifiers を構築します(乱数は消費しません)。 */
@@ -248,6 +270,23 @@ function buildStageModifiers(stage: BattleStage | null): StageModifiers {
       return { ...DEFAULT_STAGE_MODIFIERS, critRateAdd: STAGE_TRAIT_CRIT_RATE_BONUS };
     case "mp-regen-up":
       return { ...DEFAULT_STAGE_MODIFIERS, mpRegenAdd: STAGE_TRAIT_MP_REGEN_BONUS };
+    case "defense-up":
+      return { ...DEFAULT_STAGE_MODIFIERS, defenseAdd: STAGE_TRAIT_DEFENSE_BONUS };
+    case "damage-up":
+      return {
+        ...DEFAULT_STAGE_MODIFIERS,
+        damageTakenMul: STAGE_TRAIT_DAMAGE_UP_MULTIPLIER,
+      };
+    case "special-boost":
+      return {
+        ...DEFAULT_STAGE_MODIFIERS,
+        specialTriggerAdd: STAGE_TRAIT_SPECIAL_TRIGGER_BONUS,
+      };
+    case "crit-damage-up":
+      return {
+        ...DEFAULT_STAGE_MODIFIERS,
+        critMultiplierAdd: STAGE_TRAIT_CRIT_MULTIPLIER_BONUS,
+      };
   }
 }
 
@@ -279,11 +318,14 @@ function effectiveAttack(state: CombatantState, modifiers: StageModifiers): numb
 }
 
 /**
- * 強化・じゃくたいを反映した実効防御力を返します。
+ * 強化・じゃくたい・ステージ特性(defense-up)を反映した実効防御力を返します。
  * よわらせるで defenseBuff が負になっても0未満にはしません。
  */
-function effectiveDefense(state: CombatantState): number {
-  const defense = Math.max(0, state.character.defense + state.defenseBuff);
+function effectiveDefense(state: CombatantState, modifiers: StageModifiers): number {
+  const defense = Math.max(
+    0,
+    state.character.defense + state.defenseBuff + modifiers.defenseAdd,
+  );
   return state.ailment === "weaken" ? defense * WEAKEN_DEFENSE_FACTOR : defense;
 }
 
@@ -641,6 +683,69 @@ function simulateMultiTeamBattle(
           announced = true;
           break;
         }
+        case "mana-drain": {
+          const drained = Math.min(
+            c.mp,
+            Math.round(c.character.mp * STAGE_EVENT_MANA_DRAIN_RATIO),
+          );
+          if (drained <= 0) {
+            continue;
+          }
+          c.mp -= drained;
+          emit(turn, c, c, {
+            type: "stage-mp-drain",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            drained,
+          });
+          announced = true;
+          break;
+        }
+        case "attack-up": {
+          const attackGain = STAGE_EVENT_BUFF_AMOUNT;
+          c.attackBuff += attackGain;
+          emit(turn, c, c, {
+            type: "stage-buff",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            attackGain,
+            defenseGain: 0,
+          });
+          announced = true;
+          break;
+        }
+        case "defense-down": {
+          const defenseGain = -STAGE_EVENT_BUFF_AMOUNT;
+          c.defenseBuff += defenseGain;
+          emit(turn, c, c, {
+            type: "stage-buff",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            attackGain: 0,
+            defenseGain,
+          });
+          announced = true;
+          break;
+        }
+        case "cleanse": {
+          if (c.ailment === null) {
+            continue;
+          }
+          const cured = c.ailment;
+          c.ailment = null;
+          emit(turn, c, c, {
+            type: "stage-cure",
+            eventId: event.id,
+            eventName: event.name,
+            announce: !announced,
+            ailment: cured,
+          });
+          announced = true;
+          break;
+        }
       }
     }
   }
@@ -726,10 +831,11 @@ function simulateMultiTeamBattle(
     const ailmentTargets = livingOpponents.filter(
       (o) => o.ailment === null && !hasPassive(o, "ailment-guard"),
     );
-    // special-master 持ちは必殺技の発動率が上がります
-    const specialTriggerChance = hasPassive(actor, "special-master")
-      ? SPECIAL_MASTER_TRIGGER_CHANCE
-      : SPECIAL_TRIGGER_CHANCE;
+    // special-master 持ち・ステージ特性(special-boost)は必殺技の発動率が上がります
+    const specialTriggerChance =
+      (hasPassive(actor, "special-master")
+        ? SPECIAL_MASTER_TRIGGER_CHANCE
+        : SPECIAL_TRIGGER_CHANCE) + modifiers.specialTriggerAdd;
     if (
       isSpecialUsable(actor, livingOpponents, ailmentTargets) &&
       rng() < specialTriggerChance
@@ -769,9 +875,9 @@ function simulateMultiTeamBattle(
     const defenseFactor = hasPassive(actor, "pierce") ? 0 : NORMAL_DEFENSE_FACTOR;
     let raw =
       effectiveAttack(actor, modifiers) * variance -
-      effectiveDefense(target) * defenseFactor;
+      effectiveDefense(target, modifiers) * defenseFactor;
     if (critical) {
-      raw *= CRIT_MULTIPLIER;
+      raw *= CRIT_MULTIPLIER + modifiers.critMultiplierAdd;
     }
     const damage = toDamage(raw * damageMultiplierFor(actor, target, modifiers));
     const hit = applyDamage(target, damage);
@@ -853,7 +959,7 @@ function simulateMultiTeamBattle(
         const damage = toDamage(
           (move.power * variance +
             effectiveAttack(actor, modifiers) * SPECIAL_ATTACK_BONUS -
-            effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
+            effectiveDefense(target, modifiers) * SPECIAL_DEFENSE_FACTOR) *
             damageMultiplierFor(actor, target, modifiers),
         );
         const hit = applyDamage(target, damage);
@@ -932,7 +1038,7 @@ function simulateMultiTeamBattle(
         const target = pickTarget(livingOpponents);
         const variance = SPECIAL_VARIANCE_BASE + rng() * SPECIAL_VARIANCE_RANGE;
         const damage = toDamage(
-          (move.power * variance - effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
+          (move.power * variance - effectiveDefense(target, modifiers) * SPECIAL_DEFENSE_FACTOR) *
             damageMultiplierFor(actor, target, modifiers),
         );
         const hit = applyDamage(target, damage);
@@ -978,7 +1084,7 @@ function simulateMultiTeamBattle(
         for (const target of livingOpponents) {
           const damage = toDamage(
             (move.power * ALL_ATTACK_POWER_FACTOR * variance -
-              effectiveDefense(target) * SPECIAL_DEFENSE_FACTOR) *
+              effectiveDefense(target, modifiers) * SPECIAL_DEFENSE_FACTOR) *
               damageMultiplierFor(actor, target, modifiers),
           );
           const hit = applyDamage(target, damage);
